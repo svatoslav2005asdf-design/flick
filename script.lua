@@ -112,14 +112,42 @@ local v13 = v9.new({
 })
 local UserInputService = game:GetService("UserInputService")
 
-t1.value4 = game.CoreGui:WaitForChild("FATALITY"):WaitForChild("FatalFtame")
+local function findMenuFrame()
+    local root = game:GetService("CoreGui"):FindFirstChild("FATALITY")
+        or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("FATALITY")
+    if not root then return nil end
+    return root:FindFirstChild("FatalFtame", true) or root:FindFirstChild("FatalFrame", true)
+end
+
+t1.value4 = findMenuFrame()
+
+-- Mobile menu button; tap to open or close.
+local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+local mobileGui = Instance.new("ScreenGui")
+mobileGui.Name = "FatalityMobileToggle"
+mobileGui.ResetOnSpawn = false
+mobileGui.Parent = playerGui
+local mobileButton = Instance.new("TextButton")
+mobileButton.Name = "Toggle"
+mobileButton.Size = UDim2.fromOffset(48, 48)
+mobileButton.Position = UDim2.fromOffset(12, 90)
+mobileButton.BackgroundColor3 = Color3.fromRGB(28, 25, 34)
+mobileButton.TextColor3 = Color3.fromRGB(255, 95, 135)
+mobileButton.Text = "F"
+mobileButton.TextScaled = true
+mobileButton.Parent = mobileGui
+Instance.new("UICorner", mobileButton).CornerRadius = UDim.new(1, 0)
+mobileButton.Activated:Connect(function()
+    t1.value4 = findMenuFrame() or t1.value4
+    if t1.value4 then t1.value4.Visible = not t1.value4.Visible end
+end)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then
         return
     end
 
     if input.KeyCode == Enum.KeyCode.H then
-        t1.value4.Visible = not t1.value4.Visible
+        if t1.value4 then t1.value4.Visible = not t1.value4.Visible end
     end
 end)
 v13:AddConfig():Init("Counter-Strike 2", "Fatality-Win")
@@ -760,11 +788,11 @@ function t1.value48(p28, p29)
         if v217 then
             local Charm = v217:FindFirstChild("Charm", true)
 
-            if Charm and p28 == Charm or Charm:IsAncestorOf(p28) then
+            if Charm and (p28 == Charm or Charm:IsAncestorOf(p28)) then
                 return
             end
         end
-    elseif p28.Name ~= "Charm" and (not p28.Parent and p28.Parent.Name == "Charm") then
+    elseif p28.Name ~= "Charm" and p28.Parent and p28.Parent.Name ~= "Charm" then
         return
     end
 
@@ -1126,7 +1154,7 @@ Option4:AddColorPicker({
     t1.value58.Color = p49
 end
 })
-t1.value53.RenderStepped:Connect(function()
+t1.value53.RenderStepped:Connect(function(dt)
     if t1.value59.Type == "Rain" then
         if #t1.value55 < t1.value57.Density then
             local Part = Instance.new("Part")
@@ -1147,7 +1175,7 @@ t1.value53.RenderStepped:Connect(function()
                     v.Position = t1.value54.CFrame.Position + Vector3.new(math.random(-50, 50), 50, math.random(-50, 50))
                 else
                     local s2 = "Position"
-                    local vector3 = Vector3.new(0, t1.value57.Speed * t1.value53.RenderStepped:Wait(), 0)
+                    local vector3 = Vector3.new(0, t1.value57.Speed * dt, 0)
 
                     v[s2] = v[s2] - vector3
                 end
@@ -1176,7 +1204,7 @@ t1.value53.RenderStepped:Connect(function()
                     v.Position = t1.value54.CFrame.Position + Vector3.new(math.random(-60, 60), 60, math.random(-60, 60))
                 else
                     local s3 = "Position"
-                    local vector3 = Vector3.new(0, t1.value58.Speed * t1.value53.RenderStepped:Wait(), 0)
+                    local vector3 = Vector3.new(0, t1.value58.Speed * dt, 0)
 
                     v[s3] = v[s3] - vector3
                 end
