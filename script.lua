@@ -134,126 +134,6 @@ local vSettings = v13:AddMenu({
 	Icon = "cog"
 })
 
--- FATALITY extensions: persistent settings (executor filesystem required).
-local HttpService = game:GetService("HttpService")
-local extensionPath = "FATALITY_Flick_mobile.json"
-local extensionDefaults = {
-    AttackIntervalsEnabled = false,
-    AttackIntervalMs = 150,
-    AttackHoldMs = 50,
-    SurfacePenetration = false,
-}
-local extensionState = table.clone(extensionDefaults)
-local function extensionLoad()
-    if type(readfile) ~= "function" or type(isfile) ~= "function" then
-        return false, "readfile/isfile unavailable"
-    end
-    if not isfile(extensionPath) then
-        return false, "config does not exist"
-    end
-    local ok, data = pcall(function()
-        return HttpService:JSONDecode(readfile(extensionPath))
-    end)
-    if not ok or type(data) ~= "table" then
-        return false, "invalid JSON"
-    end
-    for key, default in pairs(extensionDefaults) do
-        if type(data[key]) == type(default) then
-            extensionState[key] = data[key]
-        end
-    end
-    extensionState.AttackIntervalMs = math.clamp(math.floor(extensionState.AttackIntervalMs), 50, 2000)
-    extensionState.AttackHoldMs = math.clamp(math.floor(extensionState.AttackHoldMs), 10, 500)
-    return true, "loaded"
-end
-local function extensionSave()
-    if type(writefile) ~= "function" then
-        return false, "writefile unavailable"
-    end
-    local ok, err = pcall(function()
-        writefile(extensionPath, HttpService:JSONEncode(extensionState))
-    end)
-    return ok, ok and "saved" or tostring(err)
-end
-extensionLoad()
-
-local attackSection = v15:AddSection({Position = "right", Name = "ATTACK INTERVALS"})
-attackSection:AddToggle({
-    Name = "Enable intervals", Flag = "FlickAttackIntervalsEnabled",
-    Default = extensionState.AttackIntervalsEnabled,
-    Callback = function(value) extensionState.AttackIntervalsEnabled = value end
-})
-attackSection:AddSlider({
-    Name = "Interval (ms)", Flag = "FlickAttackIntervalMs", Min = 50, Max = 2000,
-    Default = extensionState.AttackIntervalMs,
-    Callback = function(value) extensionState.AttackIntervalMs = math.floor(value) end
-})
-attackSection:AddSlider({
-    Name = "Press duration (ms)", Flag = "FlickAttackHoldMs", Min = 10, Max = 500,
-    Default = extensionState.AttackHoldMs,
-    Callback = function(value) extensionState.AttackHoldMs = math.floor(value) end
-})
-local penetrationSection = v15:AddSection({Position = "right", Name = "SURFACE PENETRATION"})
-penetrationSection:AddToggle({
-    Name = "Target through surfaces", Flag = "FlickSurfacePenetration",
-    Default = extensionState.SurfacePenetration,
-    Callback = function(value) extensionState.SurfacePenetration = value end
-})
-local configSection = vSettings:AddSection({Position = "left", Name = "CONFIG SYSTEM"})
--- A separate touch GUI supplies explicit Save/Load buttons without assuming
--- undocumented AddButton behavior in the externally fetched UI library.
-local configGui = Instance.new("ScreenGui")
-configGui.Name = "FlickConfigControls"
-configGui.ResetOnSpawn = false
-configGui.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-local configPanel = Instance.new("Frame")
-configPanel.Name = "ConfigPanel"
-configPanel.Size = UDim2.fromOffset(240, 94)
-configPanel.Position = UDim2.new(1, -250, 1, -108)
-configPanel.BackgroundColor3 = Color3.fromRGB(23, 23, 23)
-configPanel.Parent = configGui
-Instance.new("UICorner", configPanel).CornerRadius = UDim.new(0, 7)
-local configStatus = Instance.new("TextLabel")
-configStatus.Size = UDim2.new(1, -12, 0, 30)
-configStatus.Position = UDim2.fromOffset(6, 58)
-configStatus.BackgroundTransparency = 1
-configStatus.TextColor3 = Color3.fromRGB(240, 240, 240)
-configStatus.TextSize = 12
-configStatus.Font = Enum.Font.Gotham
-configStatus.Text = "FATALITY / Flick config"
-configStatus.Parent = configPanel
-local function configButton(label, x, callback)
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.fromOffset(108, 42)
-    button.Position = UDim2.fromOffset(x, 8)
-    button.BackgroundColor3 = Color3.fromRGB(245, 91, 124)
-    button.TextColor3 = Color3.new(1, 1, 1)
-    button.TextSize = 14
-    button.Font = Enum.Font.GothamBold
-    button.Text = label
-    button.Parent = configPanel
-    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 5)
-    button.Activated:Connect(function()
-        local ok, message = callback()
-        configStatus.Text = (ok and "OK: " or "ERROR: ") .. message
-    end)
-end
-configButton("SAVE", 8, extensionSave)
-configButton("LOAD", 124, extensionLoad)
--- Save/load also exposed through the Settings menu as documented toggles.
-configSection:AddToggle({
-    Name = "Save config (tap)", Flag = "FlickConfigSaveAction", Default = false,
-    Callback = function(value)
-        if value then local ok, message = extensionSave(); configStatus.Text = (ok and "OK: " or "ERROR: ") .. message end
-    end
-})
-configSection:AddToggle({
-    Name = "Load config (tap)", Flag = "FlickConfigLoadAction", Default = false,
-    Callback = function(value)
-        if value then local ok, message = extensionLoad(); configStatus.Text = (ok and "OK: " or "ERROR: ") .. message end
-    end
-})
-
 local v16 = v15:AddSection({
 	Position = "left",
 	Name = "SILENT AIM"
@@ -283,6 +163,111 @@ local v22 = v15:AddSection({
 	Position = "left",
 	Name = "RAGE BOT"
 })
+
+-- ============================================================
+-- [CONFIG] core: JSON save/load, 3 slots, autosave
+-- files: FatalityFlick/<slot>.json + meta.json (workspace folder of the executor)
+-- ============================================================
+do
+    local HttpService = game:GetService("HttpService")
+    local Cfg = {
+        Folder = "FatalityFlick",
+        Slots = { "default", "slot2", "slot3" },
+        Slot = "default",
+        Autosave = true,
+        ready = false,
+        _last = nil,
+        Keys = {
+            "SilentAim", "SilentAimTarget", "SilentAimFOVEnabled", "SilentAimFOV",
+            "RageBotEnabled", "RageBotHitbox", "RageBotAutoFire",
+            "AttackIntervalEnabled", "AttackInterval", "AttackHold", "AttackJitter",
+            "PenetrationEnabled", "PenetrationMax",
+        },
+    }
+
+    local fsOk = type(writefile) == "function" and type(readfile) == "function"
+        and type(isfile) == "function" and type(isfolder) == "function" and type(makefolder) == "function"
+    local mem = {} -- fallback when the executor has no filesystem
+
+    local function rd(name)
+        if not fsOk then return mem[name] end
+        local ok, data = pcall(function()
+            local p = Cfg.Folder .. "/" .. name
+            if isfile(p) then return readfile(p) end
+            return nil
+        end)
+        return ok and data or nil
+    end
+
+    local function wr(name, data)
+        if not fsOk then
+            mem[name] = data
+            return true
+        end
+        pcall(function()
+            if not isfolder(Cfg.Folder) then makefolder(Cfg.Folder) end
+        end)
+        return (pcall(writefile, Cfg.Folder .. "/" .. name, data))
+    end
+
+    local function dec(s)
+        if not s or s == "" then return nil end
+        local ok, r = pcall(HttpService.JSONDecode, HttpService, s)
+        if ok and type(r) == "table" then return r end
+        return nil
+    end
+
+    function Cfg.snapshot()
+        local out, env = {}, getgenv()
+        for _, k in ipairs(Cfg.Keys) do
+            if env[k] ~= nil then out[k] = env[k] end
+        end
+        return out
+    end
+
+    function Cfg.save(slot)
+        local json = HttpService:JSONEncode(Cfg.snapshot())
+        wr((slot or Cfg.Slot) .. ".json", json)
+        Cfg._last = json
+    end
+
+    function Cfg.load(slot)
+        local data = dec(rd((slot or Cfg.Slot) .. ".json"))
+        if not data then return false end
+        local env = getgenv()
+        for _, k in ipairs(Cfg.Keys) do
+            local v = data[k]
+            if v ~= nil and type(v) == type(env[k]) then env[k] = v end
+        end
+        Cfg._last = HttpService:JSONEncode(Cfg.snapshot())
+        return true
+    end
+
+    function Cfg.saveMeta()
+        wr("meta.json", HttpService:JSONEncode({ slot = Cfg.Slot, autosave = Cfg.Autosave }))
+    end
+
+    function Cfg.init()
+        local meta = dec(rd("meta.json"))
+        if meta then
+            if table.find(Cfg.Slots, meta.slot) then Cfg.Slot = meta.slot end
+            if type(meta.autosave) == "boolean" then Cfg.Autosave = meta.autosave end
+        end
+        Cfg.load()
+        Cfg.ready = true
+    end
+
+    task.spawn(function()
+        while task.wait(2) do
+            if Cfg.ready and Cfg.Autosave then
+                local ok, json = pcall(function() return HttpService:JSONEncode(Cfg.snapshot()) end)
+                if ok and json ~= Cfg._last then pcall(Cfg.save) end
+            end
+        end
+    end)
+
+    t1.Cfg = Cfg
+end
 
 t1.value5 = game:GetService("Players")
 
@@ -333,6 +318,15 @@ getgenv().RageBotEnabled = false
 getgenv().RageBotHitbox = "Head"
 getgenv().RageBotAutoFire = false
 
+-- new-feature defaults, then apply the saved config over everything above
+getgenv().AttackIntervalEnabled = false
+getgenv().AttackInterval = 100   -- ms between shots
+getgenv().AttackHold = 50        -- ms the fire input stays down
+getgenv().AttackJitter = 0       -- +/- ms random on the interval
+getgenv().PenetrationEnabled = false
+getgenv().PenetrationMax = 3     -- surfaces a shot may pass through
+t1.Cfg.init()
+
 local cam = t1.value6.CurrentCamera
 
 function getRageBotTarget()
@@ -367,7 +361,7 @@ function getRageBotTarget()
                 
                 local isVisible = not result or result.Instance:IsDescendantOf(char)
                 
-                if isVisible or extensionState.SurfacePenetration then
+                if isVisible then
                     local dist = (targetPart.Position - cam.CFrame.Position).Magnitude
                     if dist < closestDist then
                         closestDist = dist
@@ -385,6 +379,66 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BulletHandler = require(ReplicatedStorage.ModuleScripts.GunModules:WaitForChild("BulletHandler"))
 local SignalManager = require(ReplicatedStorage:WaitForChild("SignalManager"))
 local oldFire = BulletHandler.Fire
+
+-- ============================================================
+-- [SURFACE PENETRATION] core
+-- convention: while armed (250 ms after each BulletHandler.Fire), game-side
+-- workspace:Raycast calls that hit non-player geometry are re-cast past it,
+-- up to PenetrationMax surfaces. own script raycasts (checkcaller) are untouched.
+-- ============================================================
+do
+    local Players = game:GetService("Players")
+    local rawRaycast = workspace.Raycast
+    local Pen = { armedUntil = 0, hooked = false }
+    t1.Pen = Pen
+
+    function Pen.arm()
+        if getgenv().PenetrationEnabled then
+            Pen.armedUntil = os.clock() + 0.25
+        end
+    end
+
+    local function isPlayerPart(inst)
+        local model = inst:FindFirstAncestorWhichIsA("Model")
+        while model do
+            if Players:GetPlayerFromCharacter(model) then return true end
+            model = model:FindFirstAncestorWhichIsA("Model")
+        end
+        return false
+    end
+
+    if type(hookmetamethod) == "function" and type(getnamecallmethod) == "function"
+        and type(newcclosure) == "function" and type(checkcaller) == "function" then
+        local oldNC
+        oldNC = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+            if os.clock() < Pen.armedUntil and self == workspace
+                and getnamecallmethod() == "Raycast" and not checkcaller() then
+                local origin, dir, params = ...
+                local res = oldNC(self, ...)
+                if res and typeof(params) == "RaycastParams"
+                    and params.FilterType == Enum.RaycastFilterType.Exclude then
+                    local ignore = table.clone(params.FilterDescendantsInstances)
+                    local limit = getgenv().PenetrationMax or 3
+                    local n = 0
+                    while res and n < limit and not isPlayerPart(res.Instance) do
+                        ignore[#ignore + 1] = res.Instance
+                        local np = RaycastParams.new()
+                        np.FilterType = Enum.RaycastFilterType.Exclude
+                        np.FilterDescendantsInstances = ignore
+                        np.IgnoreWater = params.IgnoreWater
+                        np.CollisionGroup = params.CollisionGroup
+                        np.RespectCanCollide = params.RespectCanCollide
+                        res = rawRaycast(workspace, origin, dir, np)
+                        n += 1
+                    end
+                end
+                return res
+            end
+            return oldNC(self, ...)
+        end))
+        Pen.hooked = true
+    end
+end
 
 local function isInFOV(targetPart)
     if not getgenv().SilentAimFOVEnabled then return true end
@@ -423,7 +477,7 @@ local function getSilentAimTarget()
                 if d < closestDist then
                     local dir = (targetPart.Position - cam.CFrame.Position).Unit * d
                     local hit = t1.value6:Raycast(cam.CFrame.Position, dir, rayParams)
-                    if extensionState.SurfacePenetration or not hit or hit.Instance:IsDescendantOf(player.Character) then
+                    if not hit or hit.Instance:IsDescendantOf(player.Character) then
                         closestDist = d
                         closest = targetPart
                     end
@@ -457,29 +511,105 @@ BulletHandler.Fire = function(data)
         data.Misc.CamCFrame = CFrame.new(data.Misc.CamCFrame.Position, target.Position)
     end
     
+    t1.Pen.arm()
+
     return oldFire(data)
 end
 
-task.spawn(function()
-    while true do
-        local enabled = getgenv().RageBotEnabled and getgenv().RageBotAutoFire
-        local interval = extensionState.AttackIntervalsEnabled and extensionState.AttackIntervalMs / 1000 or 0.1
-        if enabled and getRageBotTarget() then
-            SignalManager.Fire("FireWeapon", Enum.UserInputState.Begin)
-            local hold = extensionState.AttackIntervalsEnabled and extensionState.AttackHoldMs / 1000 or 0.05
-            task.wait(hold)
-            SignalManager.Fire("FireWeapon", Enum.UserInputState.End)
-            task.wait(math.max(0.01, interval - hold))
-        else
-            task.wait(0.05)
+-- ============================================================
+-- [ATTACK INTERVAL] auto-shoot cadence (rage bot auto shoot)
+-- off = legacy 100 ms cycle (50 hold + 50 wait)
+-- ============================================================
+do
+    local sec = v15:AddSection({ Position = "right", Name = "ATTACK INTERVAL" })
+
+    sec:AddToggle({
+        Name = "Custom Interval",
+        Flag = "AttackIntervalEnabled",
+        Default = getgenv().AttackIntervalEnabled,
+        Callback = function(p) getgenv().AttackIntervalEnabled = p end
+    })
+    sec:AddSlider({
+        Name = "Interval (ms)",
+        Flag = "AttackInterval",
+        Min = 20, Max = 1000,
+        Default = math.clamp(getgenv().AttackInterval, 20, 1000),
+        Callback = function(p) getgenv().AttackInterval = p end
+    })
+    sec:AddSlider({
+        Name = "Hold (ms)",
+        Flag = "AttackHold",
+        Min = 10, Max = 500,
+        Default = math.clamp(getgenv().AttackHold, 10, 500),
+        Callback = function(p) getgenv().AttackHold = p end
+    })
+    sec:AddSlider({
+        Name = "Jitter (ms)",
+        Flag = "AttackJitter",
+        Min = 0, Max = 200,
+        Default = math.clamp(getgenv().AttackJitter, 0, 200),
+        Callback = function(p) getgenv().AttackJitter = p end
+    })
+
+    task.spawn(function()
+        while true do
+            local g = getgenv()
+            if g.RageBotEnabled and g.RageBotAutoFire and getRageBotTarget() then
+                local interval, hold = 0.1, 0.05
+                if g.AttackIntervalEnabled then
+                    interval = g.AttackInterval / 1000
+                    if g.AttackJitter > 0 then
+                        interval += (math.random() * 2 - 1) * g.AttackJitter / 1000
+                    end
+                    hold = g.AttackHold / 1000
+                end
+                interval = math.max(interval, 0.02)
+                hold = math.min(hold, interval)
+
+                SignalManager.Fire("FireWeapon", Enum.UserInputState.Begin)
+                task.wait(hold)
+                SignalManager.Fire("FireWeapon", Enum.UserInputState.End)
+                task.wait(math.max(interval - hold, 0.01))
+            else
+                task.wait(0.05)
+            end
         end
+    end)
+end
+
+-- ============================================================
+-- [SURFACE PENETRATION] toggle + depth
+-- ============================================================
+do
+    local sec = v15:AddSection({ Position = "center", Name = "SURFACE PENETRATION" })
+
+    sec:AddToggle({
+        Name = "Penetrate Surfaces",
+        Flag = "PenetrationEnabled",
+        Default = getgenv().PenetrationEnabled,
+        Callback = function(p) getgenv().PenetrationEnabled = p end
+    })
+    sec:AddSlider({
+        Name = "Max Surfaces",
+        Flag = "PenetrationMax",
+        Min = 1, Max = 8,
+        Default = math.clamp(getgenv().PenetrationMax, 1, 8),
+        Callback = function(p) getgenv().PenetrationMax = p end
+    })
+
+    if not t1.Pen.hooked then
+        v11:Notify({
+            Title = "SURFACE PENETRATION",
+            Content = "executor lacks hookmetamethod/newcclosure/checkcaller, toggle is inert",
+            Icon = "clipboard"
+        })
     end
-end)
+end
 
 v22:AddToggle({
     Name = "Enable",
     Flag = "RageBot_Enable",
-    Default = false,
+    Default = getgenv().RageBotEnabled,
     Callback = function(p)
         getgenv().RageBotEnabled = p
     end
@@ -488,7 +618,7 @@ v22:AddToggle({
 v22:AddToggle({
     Name = "Auto Shoot",
     Flag = "RageBot_AutoShoot",
-    Default = false,
+    Default = getgenv().RageBotAutoFire,
     Callback = function(p)
         getgenv().RageBotAutoFire = p
     end
@@ -504,7 +634,7 @@ v22:AddDropdown({
         "HumanoidRootPart",
         "All"
     },
-    Default = "Head",
+    Default = getgenv().RageBotHitbox,
     Callback = function(p)
         getgenv().RageBotHitbox = p
     end
@@ -3019,3 +3149,69 @@ v18:AddColorPicker({
         getgenv().BulletTrailColor = p
     end
 })
+
+-- ============================================================
+-- [CONFIG] UI (SETTINGS tab)
+-- slot switch applies values immediately; menu widgets show them after next execute
+-- ============================================================
+do
+    local Cfg = t1.Cfg
+    local sec = vSettings:AddSection({ Position = "left", Name = "CONFIG" })
+
+    sec:AddToggle({
+        Name = "Autosave",
+        Flag = "CfgAutosave",
+        Default = Cfg.Autosave,
+        Callback = function(p)
+            Cfg.Autosave = p
+            Cfg.saveMeta()
+        end
+    })
+
+    sec:AddDropdown({
+        Name = "Slot",
+        Flag = "CfgSlot",
+        Values = Cfg.Slots,
+        Default = Cfg.Slot,
+        Callback = function(p)
+            if p == Cfg.Slot then return end
+            Cfg.save()
+            Cfg.Slot = p
+            Cfg.saveMeta()
+            local ok = Cfg.load(p)
+            v11:Notify({
+                Title = "CONFIG",
+                Content = ok and ("loaded " .. p) or (p .. " is empty, saving current values there"),
+                Icon = "check"
+            })
+            if not ok then Cfg.save() end
+        end
+    })
+
+    local t0 = os.clock() -- widgets may fire their callback once on creation; stay quiet then
+    sec:AddToggle({
+        Name = "Save now (tap)",
+        Flag = "CfgSaveNow",
+        Default = false,
+        Callback = function()
+            Cfg.save()
+            if os.clock() - t0 < 3 then return end
+            v11:Notify({ Title = "CONFIG", Content = "saved " .. Cfg.Slot, Icon = "check" })
+        end
+    })
+
+    sec:AddToggle({
+        Name = "Load now (tap)",
+        Flag = "CfgLoadNow",
+        Default = false,
+        Callback = function()
+            local ok = Cfg.load()
+            if os.clock() - t0 < 3 then return end
+            v11:Notify({
+                Title = "CONFIG",
+                Content = ok and ("loaded " .. Cfg.Slot) or ("no file for " .. Cfg.Slot),
+                Icon = "check"
+            })
+        end
+    })
+end
