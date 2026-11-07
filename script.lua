@@ -124,43 +124,47 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 v13:AddConfig():Init("Counter-Strike 2", "Fatality-Win")
 
-local v15 = v13:AddMenu({
-	Name = "MAIN",
-	Icon = "settings"
-})
+local function mkMenu(name, icon)
+	local ok, m = pcall(function()
+		return v13:AddMenu({ Name = name, Icon = icon })
+	end)
+	if ok and m then return m end
+	return v13:AddMenu({ Name = name, Icon = "settings" })
+end
 
-local vSettings = v13:AddMenu({
-	Name = "SETTINGS",
-	Icon = "cog"
-})
+local v15 = mkMenu("AIM", "crosshair")
+t1.mVisuals = mkMenu("VISUALS", "eye")
+t1.mMove = mkMenu("MOVEMENT", "move")
+t1.mMisc = mkMenu("MISC", "layers")
+local vSettings = mkMenu("SETTINGS", "cog")
 
 local v16 = v15:AddSection({
 	Position = "left",
 	Name = "SILENT AIM"
 })
-local v17 = v15:AddSection({
+local v17 = t1.mVisuals:AddSection({
 	Position = "left",
 	Name = "VIEW"
 })
-local v18 = v15:AddSection({
+local v18 = t1.mVisuals:AddSection({
 	Position = "center",
 	Name = "PLAYER"
 })
-local v19 = v15:AddSection({
-	Position = "center",
+local v19 = t1.mVisuals:AddSection({
+	Position = "right",
 	Name = "WORLD"
 })
-local v20 = v15:AddSection({
-	Position = "right",
+local v20 = t1.mMove:AddSection({
+	Position = "left",
 	Name = "MOVEMENT"
 })
-local v21 = v15:AddSection({
-	Position = "right",
+local v21 = t1.mMisc:AddSection({
+	Position = "left",
 	Name = "MISC"
 })
 
 local v22 = v15:AddSection({
-	Position = "left",
+	Position = "center",
 	Name = "RAGE BOT"
 })
 
@@ -182,6 +186,7 @@ do
             "RageBotEnabled", "RageBotHitbox", "RageBotAutoFire",
             "AttackIntervalEnabled", "AttackInterval", "AttackHold", "AttackJitter",
             "PenetrationEnabled", "PenetrationMax",
+            "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll",
         },
     }
 
@@ -247,7 +252,14 @@ do
         wr("meta.json", HttpService:JSONEncode({ slot = Cfg.Slot, autosave = Cfg.Autosave }))
     end
 
+    function Cfg.reset()
+        local env = getgenv()
+        for k, v in pairs(Cfg.defaults or {}) do env[k] = v end
+        Cfg.save()
+    end
+
     function Cfg.init()
+        Cfg.defaults = Cfg.snapshot()
         local meta = dec(rd("meta.json"))
         if meta then
             if table.find(Cfg.Slots, meta.slot) then Cfg.Slot = meta.slot end
@@ -382,21 +394,15 @@ local oldFire = BulletHandler.Fire
 
 -- ============================================================
 -- [SURFACE PENETRATION] core
--- convention: while armed (250 ms after each BulletHandler.Fire), game-side
--- workspace:Raycast calls that hit non-player geometry are re-cast past it,
--- up to PenetrationMax surfaces. own script raycasts (checkcaller) are untouched.
+-- no metamethod hooks. on each shot: walk the shot line with workspace:Raycast,
+-- set CanQuery=false on up to PenetrationMax non-player parts in front of a player,
+-- restore them 350 ms later. nothing is applied when no player is reachable.
 -- ============================================================
 do
     local Players = game:GetService("Players")
     local rawRaycast = workspace.Raycast
-    local Pen = { armedUntil = 0, hooked = false }
+    local Pen = {}
     t1.Pen = Pen
-
-    function Pen.arm()
-        if getgenv().PenetrationEnabled then
-            Pen.armedUntil = os.clock() + 0.25
-        end
-    end
 
     local function isPlayerPart(inst)
         local model = inst:FindFirstAncestorWhichIsA("Model")
@@ -407,36 +413,41 @@ do
         return false
     end
 
-    if type(hookmetamethod) == "function" and type(getnamecallmethod) == "function"
-        and type(newcclosure) == "function" and type(checkcaller) == "function" then
-        local oldNC
-        oldNC = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
-            if os.clock() < Pen.armedUntil and self == workspace
-                and getnamecallmethod() == "Raycast" and not checkcaller() then
-                local origin, dir, params = ...
-                local res = oldNC(self, ...)
-                if res and typeof(params) == "RaycastParams"
-                    and params.FilterType == Enum.RaycastFilterType.Exclude then
-                    local ignore = table.clone(params.FilterDescendantsInstances)
-                    local limit = getgenv().PenetrationMax or 3
-                    local n = 0
-                    while res and n < limit and not isPlayerPart(res.Instance) do
-                        ignore[#ignore + 1] = res.Instance
-                        local np = RaycastParams.new()
-                        np.FilterType = Enum.RaycastFilterType.Exclude
-                        np.FilterDescendantsInstances = ignore
-                        np.IgnoreWater = params.IgnoreWater
-                        np.CollisionGroup = params.CollisionGroup
-                        np.RespectCanCollide = params.RespectCanCollide
-                        res = rawRaycast(workspace, origin, dir, np)
-                        n += 1
-                    end
-                end
-                return res
-            end
-            return oldNC(self, ...)
-        end))
-        Pen.hooked = true
+    local function restore(list)
+        for _, e in ipairs(list) do
+            pcall(function() e.part.CanQuery = e.was end)
+        end
+    end
+
+    function Pen.arm(data)
+        if not getgenv().PenetrationEnabled then return end
+        if not data or not data.Origin or not data.Direction then return end
+
+        local limit = getgenv().PenetrationMax or 3
+        local origin = data.Origin
+        local dir = data.Direction.Unit * 1000
+        local ignore = {}
+        local lp = Players.LocalPlayer
+        if lp and lp.Character then ignore[1] = lp.Character end
+
+        local touched, reached = {}, false
+        for i = 1, limit + 1 do
+            local params = RaycastParams.new()
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances = ignore
+            local res = rawRaycast(workspace, origin, dir, params)
+            if not res then break end
+            if isPlayerPart(res.Instance) then reached = true break end
+            if i > limit then break end
+            touched[#touched + 1] = { part = res.Instance, was = res.Instance.CanQuery }
+            ignore[#ignore + 1] = res.Instance
+        end
+
+        if not reached or #touched == 0 then return end
+        for _, e in ipairs(touched) do
+            pcall(function() e.part.CanQuery = false end)
+        end
+        task.delay(0.35, function() restore(touched) end)
     end
 end
 
@@ -511,7 +522,7 @@ BulletHandler.Fire = function(data)
         data.Misc.CamCFrame = CFrame.new(data.Misc.CamCFrame.Position, target.Position)
     end
     
-    t1.Pen.arm()
+    t1.Pen.arm(data)
 
     return oldFire(data)
 end
@@ -581,7 +592,7 @@ end
 -- [SURFACE PENETRATION] toggle + depth
 -- ============================================================
 do
-    local sec = v15:AddSection({ Position = "center", Name = "SURFACE PENETRATION" })
+    local sec = v15:AddSection({ Position = "left", Name = "SURFACE PENETRATION" })
 
     sec:AddToggle({
         Name = "Penetrate Surfaces",
@@ -596,14 +607,6 @@ do
         Default = math.clamp(getgenv().PenetrationMax, 1, 8),
         Callback = function(p) getgenv().PenetrationMax = p end
     })
-
-    if not t1.Pen.hooked then
-        v11:Notify({
-            Title = "SURFACE PENETRATION",
-            Content = "executor lacks hookmetamethod/newcclosure/checkcaller, toggle is inert",
-            Icon = "clipboard"
-        })
-    end
 end
 
 v22:AddToggle({
@@ -2119,7 +2122,7 @@ local function ApplyPoseMode(char, mode, tickVal)
     local upperTorso = char:FindFirstChild("UpperTorso")
     local lowerTorso = char:FindFirstChild("LowerTorso")
 
-    if mode == "Basic Spin" then
+    if mode ~= "Jitler" and mode ~= "Yitler" then
         for motor, origC0 in pairs(OriginalJointsCache) do
             if motor and motor.Parent then
                 motor.C0 = origC0
@@ -2234,68 +2237,60 @@ local function ApplyPoseMode(char, mode, tickVal)
     end
 end
 
-local spinToggleUI = v17:AddToggle({
-    Name = "Spin",
-    Flag = "CustomSpinEnabled",
-    Option = true,
-    Default = false,
-    Callback = function(state)
-        getgenv().SpinEnabled = state
-        if not state and t1.value99.Character then
-            RestoreCharacterJoints(t1.value99.Character)
+-- ============================================================
+-- [SPIN] section (MOVEMENT tab): mode picker is always visible
+-- modes: Basic Spin, Jitler, Yitler, Sway, Static Jitter
+-- ============================================================
+do
+    local sec = t1.mMove:AddSection({ Position = "center", Name = "SPIN" })
+    local modes = { "Basic Spin", "Jitler", "Yitler", "Sway", "Static Jitter" }
+    if not table.find(modes, getgenv().SpinMode) then getgenv().SpinMode = "Basic Spin" end
+
+    local function restore()
+        if t1.value99.Character then RestoreCharacterJoints(t1.value99.Character) end
+    end
+
+    sec:AddToggle({
+        Name = "Enable",
+        Flag = "CustomSpinEnabled",
+        Default = false,
+        Callback = function(state)
+            getgenv().SpinEnabled = state
+            if not state then restore() end
         end
-    end
-})
-
-spinToggleUI.Option:AddDropdown({
-    Name = "Spin Mode",
-    Flag = "CustomSpinMode",
-    Values = {
-        "Basic Spin",
-        "Jitler",
-        "Yitler"
-    },
-    Default = "Basic Spin",
-    Callback = function(val)
-        getgenv().SpinMode = val
-        if t1.value99.Character then
-            RestoreCharacterJoints(t1.value99.Character)
+    })
+    sec:AddDropdown({
+        Name = "Mode",
+        Flag = "CustomSpinMode",
+        Values = modes,
+        Default = getgenv().SpinMode,
+        Callback = function(val)
+            getgenv().SpinMode = val
+            restore()
         end
-    end
-})
-
-spinToggleUI.Option:AddSlider({
-    Name = "Spin Speed",
-    Flag = "CustomSpinSpeed",
-    Min = 1,
-    Max = 100,
-    Default = 25,
-    Callback = function(val)
-        getgenv().SpinSpeed = val
-    end
-})
-
-spinToggleUI.Option:AddSlider({
-    Name = "Jitter Angle",
-    Flag = "CustomSpinJitterAngle",
-    Min = 0,
-    Max = 180,
-    Default = 65,
-    Callback = function(val)
-        getgenv().SpinJitterAngle = val
-    end
-})
-
-spinToggleUI.Option:AddSlider({
-    Name = "Body Lean (Roll)",
-    Flag = "CustomSpinRoll",
-    Min = 0,
-    Max = 45,
-    Default = 0,
-    Callback = function(val)
-        getgenv().SpinDesyncRoll = val
-    end
-})
+    })
+    sec:AddSlider({
+        Name = "Speed",
+        Flag = "CustomSpinSpeed",
+        Min = 1, Max = 100,
+        Default = math.clamp(getgenv().SpinSpeed, 1, 100),
+        Callback = function(val) getgenv().SpinSpeed = val end
+    })
+    sec:AddSlider({
+        Name = "Jitter Angle",
+        Flag = "CustomSpinJitterAngle",
+        Min = 0, Max = 180,
+        Default = math.clamp(getgenv().SpinJitterAngle, 0, 180),
+        Callback = function(val) getgenv().SpinJitterAngle = val end
+    })
+    sec:AddSlider({
+        Name = "Body Lean (Roll)",
+        Flag = "CustomSpinRoll",
+        Min = 0, Max = 45,
+        Default = math.clamp(getgenv().SpinDesyncRoll, 0, 45),
+        Callback = function(val) getgenv().SpinDesyncRoll = val end
+    })
+end
 
 local currentSpinYaw = 0
 local jitterFlip = false
@@ -2321,6 +2316,14 @@ RunService5.RenderStepped:Connect(function(dt)
     if mode == "Jitler" or mode == "Yitler" then
         local jitterOffset = jitterFlip and math.rad(jitterDeg) or -math.rad(jitterDeg)
         finalYaw = finalYaw + jitterOffset
+    elseif mode == "Sway" or mode == "Static Jitter" then
+        -- relative to where the camera looks
+        local _, camYaw = workspace.CurrentCamera.CFrame:ToOrientation()
+        if mode == "Sway" then
+            finalYaw = camYaw + math.sin(tick() * speed / 8) * math.rad(jitterDeg)
+        else
+            finalYaw = camYaw + (jitterFlip and math.rad(jitterDeg) or -math.rad(jitterDeg))
+        end
     end
 
     local pos = hrp.Position
@@ -3151,24 +3154,21 @@ v18:AddColorPicker({
 })
 
 -- ============================================================
--- [CONFIG] UI (SETTINGS tab)
--- slot switch applies values immediately; menu widgets show them after next execute
+-- [CONFIG] SETTINGS tab
+-- PROFILE: which slot + autosave. ACTIONS: save / load / reset (tap = run).
+-- slot switch, load and reset change values immediately; the menu widgets
+-- show the new values after the next execute.
 -- ============================================================
 do
     local Cfg = t1.Cfg
-    local sec = vSettings:AddSection({ Position = "left", Name = "CONFIG" })
+    local t0 = os.clock() -- widgets may fire their callback once on creation; stay quiet then
+    local function note(text)
+        if os.clock() - t0 < 3 then return end
+        v11:Notify({ Title = "CONFIG", Content = text, Icon = "check" })
+    end
 
-    sec:AddToggle({
-        Name = "Autosave",
-        Flag = "CfgAutosave",
-        Default = Cfg.Autosave,
-        Callback = function(p)
-            Cfg.Autosave = p
-            Cfg.saveMeta()
-        end
-    })
-
-    sec:AddDropdown({
+    local profile = vSettings:AddSection({ Position = "left", Name = "CONFIG PROFILE" })
+    profile:AddDropdown({
         Name = "Slot",
         Flag = "CfgSlot",
         Values = Cfg.Slots,
@@ -3178,40 +3178,51 @@ do
             Cfg.save()
             Cfg.Slot = p
             Cfg.saveMeta()
-            local ok = Cfg.load(p)
-            v11:Notify({
-                Title = "CONFIG",
-                Content = ok and ("loaded " .. p) or (p .. " is empty, saving current values there"),
-                Icon = "check"
-            })
-            if not ok then Cfg.save() end
+            if Cfg.load(p) then
+                note("slot " .. p .. " loaded")
+            else
+                Cfg.save()
+                note("slot " .. p .. " is empty, current values saved into it")
+            end
+        end
+    })
+    profile:AddToggle({
+        Name = "Autosave (every 2s on change)",
+        Flag = "CfgAutosave",
+        Default = Cfg.Autosave,
+        Callback = function(p)
+            Cfg.Autosave = p
+            Cfg.saveMeta()
         end
     })
 
-    local t0 = os.clock() -- widgets may fire their callback once on creation; stay quiet then
-    sec:AddToggle({
-        Name = "Save now (tap)",
+    local actions = vSettings:AddSection({ Position = "center", Name = "CONFIG ACTIONS" })
+    actions:AddToggle({
+        Name = "Save slot (tap)",
         Flag = "CfgSaveNow",
         Default = false,
         Callback = function()
             Cfg.save()
-            if os.clock() - t0 < 3 then return end
-            v11:Notify({ Title = "CONFIG", Content = "saved " .. Cfg.Slot, Icon = "check" })
+            note("saved to " .. Cfg.Slot)
         end
     })
-
-    sec:AddToggle({
-        Name = "Load now (tap)",
+    actions:AddToggle({
+        Name = "Load slot (tap)",
         Flag = "CfgLoadNow",
         Default = false,
         Callback = function()
             local ok = Cfg.load()
+            note(ok and ("loaded " .. Cfg.Slot) or ("no file for " .. Cfg.Slot))
+        end
+    })
+    actions:AddToggle({
+        Name = "Reset slot to defaults (tap)",
+        Flag = "CfgResetNow",
+        Default = false,
+        Callback = function()
             if os.clock() - t0 < 3 then return end
-            v11:Notify({
-                Title = "CONFIG",
-                Content = ok and ("loaded " .. Cfg.Slot) or ("no file for " .. Cfg.Slot),
-                Icon = "check"
-            })
+            Cfg.reset()
+            note("slot " .. Cfg.Slot .. " reset")
         end
     })
 end
