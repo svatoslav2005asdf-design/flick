@@ -112,42 +112,14 @@ local v13 = v9.new({
 })
 local UserInputService = game:GetService("UserInputService")
 
-local function findMenuFrame()
-    local root = game:GetService("CoreGui"):FindFirstChild("FATALITY")
-        or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("FATALITY")
-    if not root then return nil end
-    return root:FindFirstChild("FatalFtame", true) or root:FindFirstChild("FatalFrame", true)
-end
-
-t1.value4 = findMenuFrame()
-
--- Mobile menu button; tap to open or close.
-local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-local mobileGui = Instance.new("ScreenGui")
-mobileGui.Name = "FatalityMobileToggle"
-mobileGui.ResetOnSpawn = false
-mobileGui.Parent = playerGui
-local mobileButton = Instance.new("TextButton")
-mobileButton.Name = "Toggle"
-mobileButton.Size = UDim2.fromOffset(48, 48)
-mobileButton.Position = UDim2.fromOffset(12, 90)
-mobileButton.BackgroundColor3 = Color3.fromRGB(28, 25, 34)
-mobileButton.TextColor3 = Color3.fromRGB(255, 95, 135)
-mobileButton.Text = "F"
-mobileButton.TextScaled = true
-mobileButton.Parent = mobileGui
-Instance.new("UICorner", mobileButton).CornerRadius = UDim.new(1, 0)
-mobileButton.Activated:Connect(function()
-    t1.value4 = findMenuFrame() or t1.value4
-    if t1.value4 then t1.value4.Visible = not t1.value4.Visible end
-end)
+t1.value4 = game.CoreGui:WaitForChild("FATALITY"):WaitForChild("FatalFtame")
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then
         return
     end
 
     if input.KeyCode == Enum.KeyCode.H then
-        if t1.value4 then t1.value4.Visible = not t1.value4.Visible end
+        t1.value4.Visible = not t1.value4.Visible
     end
 end)
 v13:AddConfig():Init("Counter-Strike 2", "Fatality-Win")
@@ -160,6 +132,126 @@ local v15 = v13:AddMenu({
 local vSettings = v13:AddMenu({
 	Name = "SETTINGS",
 	Icon = "cog"
+})
+
+-- FATALITY extensions: persistent settings (executor filesystem required).
+local HttpService = game:GetService("HttpService")
+local extensionPath = "FATALITY_Flick_mobile.json"
+local extensionDefaults = {
+    AttackIntervalsEnabled = false,
+    AttackIntervalMs = 150,
+    AttackHoldMs = 50,
+    SurfacePenetration = false,
+}
+local extensionState = table.clone(extensionDefaults)
+local function extensionLoad()
+    if type(readfile) ~= "function" or type(isfile) ~= "function" then
+        return false, "readfile/isfile unavailable"
+    end
+    if not isfile(extensionPath) then
+        return false, "config does not exist"
+    end
+    local ok, data = pcall(function()
+        return HttpService:JSONDecode(readfile(extensionPath))
+    end)
+    if not ok or type(data) ~= "table" then
+        return false, "invalid JSON"
+    end
+    for key, default in pairs(extensionDefaults) do
+        if type(data[key]) == type(default) then
+            extensionState[key] = data[key]
+        end
+    end
+    extensionState.AttackIntervalMs = math.clamp(math.floor(extensionState.AttackIntervalMs), 50, 2000)
+    extensionState.AttackHoldMs = math.clamp(math.floor(extensionState.AttackHoldMs), 10, 500)
+    return true, "loaded"
+end
+local function extensionSave()
+    if type(writefile) ~= "function" then
+        return false, "writefile unavailable"
+    end
+    local ok, err = pcall(function()
+        writefile(extensionPath, HttpService:JSONEncode(extensionState))
+    end)
+    return ok, ok and "saved" or tostring(err)
+end
+extensionLoad()
+
+local attackSection = v15:AddSection({Position = "right", Name = "ATTACK INTERVALS"})
+attackSection:AddToggle({
+    Name = "Enable intervals", Flag = "FlickAttackIntervalsEnabled",
+    Default = extensionState.AttackIntervalsEnabled,
+    Callback = function(value) extensionState.AttackIntervalsEnabled = value end
+})
+attackSection:AddSlider({
+    Name = "Interval (ms)", Flag = "FlickAttackIntervalMs", Min = 50, Max = 2000,
+    Default = extensionState.AttackIntervalMs,
+    Callback = function(value) extensionState.AttackIntervalMs = math.floor(value) end
+})
+attackSection:AddSlider({
+    Name = "Press duration (ms)", Flag = "FlickAttackHoldMs", Min = 10, Max = 500,
+    Default = extensionState.AttackHoldMs,
+    Callback = function(value) extensionState.AttackHoldMs = math.floor(value) end
+})
+local penetrationSection = v15:AddSection({Position = "right", Name = "SURFACE PENETRATION"})
+penetrationSection:AddToggle({
+    Name = "Target through surfaces", Flag = "FlickSurfacePenetration",
+    Default = extensionState.SurfacePenetration,
+    Callback = function(value) extensionState.SurfacePenetration = value end
+})
+local configSection = vSettings:AddSection({Position = "left", Name = "CONFIG SYSTEM"})
+-- A separate touch GUI supplies explicit Save/Load buttons without assuming
+-- undocumented AddButton behavior in the externally fetched UI library.
+local configGui = Instance.new("ScreenGui")
+configGui.Name = "FlickConfigControls"
+configGui.ResetOnSpawn = false
+configGui.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+local configPanel = Instance.new("Frame")
+configPanel.Name = "ConfigPanel"
+configPanel.Size = UDim2.fromOffset(240, 94)
+configPanel.Position = UDim2.new(1, -250, 1, -108)
+configPanel.BackgroundColor3 = Color3.fromRGB(23, 23, 23)
+configPanel.Parent = configGui
+Instance.new("UICorner", configPanel).CornerRadius = UDim.new(0, 7)
+local configStatus = Instance.new("TextLabel")
+configStatus.Size = UDim2.new(1, -12, 0, 30)
+configStatus.Position = UDim2.fromOffset(6, 58)
+configStatus.BackgroundTransparency = 1
+configStatus.TextColor3 = Color3.fromRGB(240, 240, 240)
+configStatus.TextSize = 12
+configStatus.Font = Enum.Font.Gotham
+configStatus.Text = "FATALITY / Flick config"
+configStatus.Parent = configPanel
+local function configButton(label, x, callback)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.fromOffset(108, 42)
+    button.Position = UDim2.fromOffset(x, 8)
+    button.BackgroundColor3 = Color3.fromRGB(245, 91, 124)
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.TextSize = 14
+    button.Font = Enum.Font.GothamBold
+    button.Text = label
+    button.Parent = configPanel
+    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 5)
+    button.Activated:Connect(function()
+        local ok, message = callback()
+        configStatus.Text = (ok and "OK: " or "ERROR: ") .. message
+    end)
+end
+configButton("SAVE", 8, extensionSave)
+configButton("LOAD", 124, extensionLoad)
+-- Save/load also exposed through the Settings menu as documented toggles.
+configSection:AddToggle({
+    Name = "Save config (tap)", Flag = "FlickConfigSaveAction", Default = false,
+    Callback = function(value)
+        if value then local ok, message = extensionSave(); configStatus.Text = (ok and "OK: " or "ERROR: ") .. message end
+    end
+})
+configSection:AddToggle({
+    Name = "Load config (tap)", Flag = "FlickConfigLoadAction", Default = false,
+    Callback = function(value)
+        if value then local ok, message = extensionLoad(); configStatus.Text = (ok and "OK: " or "ERROR: ") .. message end
+    end
 })
 
 local v16 = v15:AddSection({
@@ -275,7 +367,7 @@ function getRageBotTarget()
                 
                 local isVisible = not result or result.Instance:IsDescendantOf(char)
                 
-                if isVisible then
+                if isVisible or extensionState.SurfacePenetration then
                     local dist = (targetPart.Position - cam.CFrame.Position).Magnitude
                     if dist < closestDist then
                         closestDist = dist
@@ -331,7 +423,7 @@ local function getSilentAimTarget()
                 if d < closestDist then
                     local dir = (targetPart.Position - cam.CFrame.Position).Unit * d
                     local hit = t1.value6:Raycast(cam.CFrame.Position, dir, rayParams)
-                    if not hit or hit.Instance:IsDescendantOf(player.Character) then
+                    if extensionState.SurfacePenetration or not hit or hit.Instance:IsDescendantOf(player.Character) then
                         closestDist = d
                         closest = targetPart
                     end
@@ -369,14 +461,17 @@ BulletHandler.Fire = function(data)
 end
 
 task.spawn(function()
-    while task.wait(0.05) do
-        if getgenv().RageBotEnabled and getgenv().RageBotAutoFire then
-            local target = getRageBotTarget()
-            if target then
-                SignalManager.Fire("FireWeapon", Enum.UserInputState.Begin)
-                task.wait(0.05)
-                SignalManager.Fire("FireWeapon", Enum.UserInputState.End)
-            end
+    while true do
+        local enabled = getgenv().RageBotEnabled and getgenv().RageBotAutoFire
+        local interval = extensionState.AttackIntervalsEnabled and extensionState.AttackIntervalMs / 1000 or 0.1
+        if enabled and getRageBotTarget() then
+            SignalManager.Fire("FireWeapon", Enum.UserInputState.Begin)
+            local hold = extensionState.AttackIntervalsEnabled and extensionState.AttackHoldMs / 1000 or 0.05
+            task.wait(hold)
+            SignalManager.Fire("FireWeapon", Enum.UserInputState.End)
+            task.wait(math.max(0.01, interval - hold))
+        else
+            task.wait(0.05)
         end
     end
 end)
@@ -788,11 +883,11 @@ function t1.value48(p28, p29)
         if v217 then
             local Charm = v217:FindFirstChild("Charm", true)
 
-            if Charm and (p28 == Charm or Charm:IsAncestorOf(p28)) then
+            if Charm and p28 == Charm or Charm:IsAncestorOf(p28) then
                 return
             end
         end
-    elseif p28.Name ~= "Charm" and p28.Parent and p28.Parent.Name ~= "Charm" then
+    elseif p28.Name ~= "Charm" and (not p28.Parent and p28.Parent.Name == "Charm") then
         return
     end
 
@@ -1154,7 +1249,7 @@ Option4:AddColorPicker({
     t1.value58.Color = p49
 end
 })
-t1.value53.RenderStepped:Connect(function(dt)
+t1.value53.RenderStepped:Connect(function()
     if t1.value59.Type == "Rain" then
         if #t1.value55 < t1.value57.Density then
             local Part = Instance.new("Part")
@@ -1175,7 +1270,7 @@ t1.value53.RenderStepped:Connect(function(dt)
                     v.Position = t1.value54.CFrame.Position + Vector3.new(math.random(-50, 50), 50, math.random(-50, 50))
                 else
                     local s2 = "Position"
-                    local vector3 = Vector3.new(0, t1.value57.Speed * dt, 0)
+                    local vector3 = Vector3.new(0, t1.value57.Speed * t1.value53.RenderStepped:Wait(), 0)
 
                     v[s2] = v[s2] - vector3
                 end
@@ -1204,7 +1299,7 @@ t1.value53.RenderStepped:Connect(function(dt)
                     v.Position = t1.value54.CFrame.Position + Vector3.new(math.random(-60, 60), 60, math.random(-60, 60))
                 else
                     local s3 = "Position"
-                    local vector3 = Vector3.new(0, t1.value58.Speed * dt, 0)
+                    local vector3 = Vector3.new(0, t1.value58.Speed * t1.value53.RenderStepped:Wait(), 0)
 
                     v[s3] = v[s3] - vector3
                 end
