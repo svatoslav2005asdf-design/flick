@@ -173,14 +173,13 @@ local v22 = v15:AddSection({
 })
 
 -- ============================================================
--- [CONFIG] core: JSON save/load, 3 slots, autosave
--- files: LesxovTap/<slot>.json + meta.json (workspace folder of the executor)
+-- [CONFIG] core: именованные конфиги через writefile/readfile/delfile
+-- LesxovTap/configs/<name>.json, LesxovTap/meta.json (последний выбранный)
 -- ============================================================
 do
     local HttpService = game:GetService("HttpService")
     local Cfg = {
         Folder = "LesxovTap",
-        Slots = {"default", "slot2", "slot3"},
         Slot = "default",
         Autosave = false,
         ready = false,
@@ -189,101 +188,155 @@ do
             "SilentAim", "SilentAimTarget", "SilentAimFOVEnabled", "SilentAimFOV",
             "RageBotEnabled", "RageBotHitbox", "RageBotAutoFire",
             "AttackIntervalEnabled", "AttackInterval", "AttackHold", "AttackJitter",
-            "PenetrationEnabled", "PenetrationMax", "RageMagEnabled",
-            "WallbangEnabled", "FireRateEnabled", "FireRateMult",
+            "PenetrationEnabled", "PenetrationMax",
+            "RageMagEnabled", "WallbangEnabled", "WallbangAutoFire", "WallbangFOV", "NoReloadEnabled",
             "GodModeEnabled", "CrosshairEnabled", "CrosshairSize", "CrosshairGap",
             "SkinEnabled", "SkinName", "SnowStyle",
-            "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll",
+            "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll", "UndoDuration",
             "BulletTrailsEnabled", "BulletTrailModel", "BulletTrailLife",
-            "BulletTrailColor", "LesxovTheme"
+            "Theme", "ThemeHue", "ThemeSat",
         },
     }
 
     local fsOk = type(writefile) == "function" and type(readfile) == "function"
         and type(isfile) == "function" and type(isfolder) == "function" and type(makefolder) == "function"
-    local mem = {} -- fallback when the executor has no filesystem
+    local mem = {} -- если у экзекутора нет файловой системы
 
-    local function rd(name)
-        if not fsOk then return mem[name] end
+    local function ensureDirs()
+        if not fsOk then return end
+        pcall(function()
+            if not isfolder(Cfg.Folder) then makefolder(Cfg.Folder) end
+            if not isfolder(Cfg.Folder .. "/configs") then makefolder(Cfg.Folder .. "/configs") end
+        end)
+    end
+
+    local function rd(rel)
+        if not fsOk then return mem[rel] end
         local ok, data = pcall(function()
-            local p = Cfg.Folder .. "/" .. name
+            local p = Cfg.Folder .. "/" .. rel
             if isfile(p) then return readfile(p) end
             return nil
         end)
         return ok and data or nil
     end
 
-    local function wr(name, data)
+    local function wr(rel, data)
         if not fsOk then
-            mem[name] = data
+            mem[rel] = data
             return true
         end
-        pcall(function()
-            if not isfolder(Cfg.Folder) then makefolder(Cfg.Folder) end
-        end)
-        return (pcall(writefile, Cfg.Folder .. "/" .. name, data))
+        ensureDirs()
+        return (pcall(writefile, Cfg.Folder .. "/" .. rel, data))
     end
 
-    local function dec(s)
-        if not s or s == "" then return nil end
-        local ok, r = pcall(HttpService.JSONDecode, HttpService, s)
+    local function dec(str)
+        if not str or str == "" then return nil end
+        local ok, r = pcall(HttpService.JSONDecode, HttpService, str)
         if ok and type(r) == "table" then return r end
         return nil
+    end
+
+    function Cfg.clean(name)
+        name = tostring(name or ""):gsub("[^%w_%- ]", "_")
+        name = name:gsub("^%s+", ""):gsub("%s+$", "")
+        return name:sub(1, 32)
+    end
+
+    local function file(name) return "configs/" .. name .. ".json" end
+
+    function Cfg.exists(name)
+        return rd(file(name)) ~= nil
+    end
+
+    function Cfg.list()
+        local out, seen = {}, {}
+        if fsOk and type(listfiles) == "function" then
+            pcall(function()
+                for _, f in ipairs(listfiles(Cfg.Folder .. "/configs")) do
+                    local n = tostring(f):match("([^/\\]+)%.json$")
+                    if n and not seen[n] then seen[n] = true; out[#out + 1] = n end
+                end
+            end)
+        else
+            for k in pairs(mem) do
+                local n = k:match("^configs/(.+)%.json$")
+                if n and not seen[n] then seen[n] = true; out[#out + 1] = n end
+            end
+        end
+        if not seen["default"] then out[#out + 1] = "default" end
+        table.sort(out)
+        return out
     end
 
     function Cfg.snapshot()
         local out, env = {}, getgenv()
         for _, k in ipairs(Cfg.Keys) do
-            if env[k] ~= nil then
-                local value = env[k]
-                if typeof(value) == "Color3" then
-                    out[k] = {__type = "Color3", r = value.R, g = value.G, b = value.B}
-                elseif type(value) == "number" or type(value) == "boolean" or type(value) == "string" then
-                    out[k] = value
-                end
-            end
+            if env[k] ~= nil then out[k] = env[k] end
         end
         return out
     end
 
-    function Cfg.save(slot)
+    function Cfg.save(name)
+        name = Cfg.clean(name or Cfg.Slot)
+        if name == "" then name = "default" end
         local json = HttpService:JSONEncode(Cfg.snapshot())
-        local ok = wr((slot or Cfg.Slot) .. ".json", json)
+        local ok = wr(file(name), json)
         if ok then Cfg._last = json end
-        return ok
+        return ok, name
     end
 
-    function Cfg.load(slot)
-        local data = dec(rd((slot or Cfg.Slot) .. ".json"))
+    function Cfg.load(name)
+        name = Cfg.clean(name or Cfg.Slot)
+        local data = dec(rd(file(name)))
         if not data then return false end
         local env = getgenv()
         for _, k in ipairs(Cfg.Keys) do
             local v = data[k]
-            if type(v) == "table" and v.__type == "Color3" then
-                env[k] = Color3.new(v.r or 1, v.g or 1, v.b or 1)
-            elseif v ~= nil and (env[k] == nil or type(v) == type(env[k])) then
-                env[k] = v
-            end
+            if v ~= nil and type(v) == type(env[k]) then env[k] = v end
         end
         Cfg._last = HttpService:JSONEncode(Cfg.snapshot())
         return true
+    end
+
+    function Cfg.delete(name)
+        name = Cfg.clean(name or Cfg.Slot)
+        if not Cfg.exists(name) then return false end
+        if not fsOk then
+            mem[file(name)] = nil
+            return true
+        end
+        local ok = pcall(function()
+            local p = Cfg.Folder .. "/" .. file(name)
+            if type(delfile) == "function" then
+                delfile(p)
+            else
+                writefile(p, "") -- нет delfile: файл обнуляем, dec() его проигнорирует
+            end
+        end)
+        return ok
     end
 
     function Cfg.saveMeta()
         wr("meta.json", HttpService:JSONEncode({ slot = Cfg.Slot, autosave = Cfg.Autosave }))
     end
 
-    function Cfg.reset()
+    function Cfg.resetValues()
         local env = getgenv()
         for k, v in pairs(Cfg.defaults or {}) do env[k] = v end
-        Cfg.save()
     end
 
     function Cfg.init()
         Cfg.defaults = Cfg.snapshot()
+        ensureDirs()
+        -- миграция со старого формата LesxovTap/<slot>.json
+        pcall(function()
+            if fsOk and not Cfg.exists("default") and isfile(Cfg.Folder .. "/default.json") then
+                wr(file("default"), readfile(Cfg.Folder .. "/default.json"))
+            end
+        end)
         local meta = dec(rd("meta.json"))
         if meta then
-            if table.find(Cfg.Slots, meta.slot) then Cfg.Slot = meta.slot end
+            if type(meta.slot) == "string" and Cfg.exists(Cfg.clean(meta.slot)) then Cfg.Slot = Cfg.clean(meta.slot) end
             if type(meta.autosave) == "boolean" then Cfg.Autosave = meta.autosave end
         end
         Cfg.load()
@@ -292,7 +345,7 @@ do
 
     task.spawn(function()
         while task.wait(2) do
-            if Cfg.ready and Cfg.Autosave then
+            if Cfg.ready and Cfg.Autosave and Cfg.exists(Cfg.Slot) then
                 local ok, json = pcall(function() return HttpService:JSONEncode(Cfg.snapshot()) end)
                 if ok and json ~= Cfg._last then pcall(Cfg.save) end
             end
@@ -371,11 +424,12 @@ getgenv().CrosshairGap = 4
 getgenv().SkinEnabled = false
 getgenv().SkinName = "Random"
 getgenv().SnowStyle = "Realistic"
-getgenv().BulletTrailsEnabled = false
-getgenv().BulletTrailModel = "Default"
-getgenv().BulletTrailLife = 15
-getgenv().BulletTrailColor = Color3.fromRGB(205, 50, 255)
-getgenv().LesxovTheme = "Purple"
+getgenv().BulletTrailsEnabled = getgenv().BulletTrailsEnabled or false
+getgenv().BulletTrailModel = getgenv().BulletTrailModel or "Default"
+getgenv().BulletTrailLife = getgenv().BulletTrailLife or 15
+getgenv().Theme = getgenv().Theme or "Default"
+getgenv().ThemeHue = getgenv().ThemeHue or 330
+getgenv().ThemeSat = getgenv().ThemeSat or 70
 t1.Cfg.init()
 
 local cam = t1.value6.CurrentCamera
@@ -462,7 +516,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BulletHandler = require(ReplicatedStorage.ModuleScripts.GunModules:WaitForChild("BulletHandler"))
 local SignalManager = require(ReplicatedStorage:WaitForChild("SignalManager"))
 local oldFire = BulletHandler.Fire
-local fireTrailEffect
 
 -- ============================================================
 -- [SURFACE PENETRATION] core
@@ -602,9 +655,6 @@ BulletHandler.Fire = function(data)
     end
     
     t1.Pen.arm(data)
-    if getgenv().BulletTrailsEnabled and fireTrailEffect and data then
-        pcall(fireTrailEffect, data)
-    end
 
     return oldFire(data)
 end
@@ -3542,8 +3592,7 @@ v21:AddToggle({
     end
 })
 
-getgenv().BulletTrailsEnabled = getgenv().BulletTrailsEnabled or false
-getgenv().BulletTrailColor = getgenv().BulletTrailColor or Color3.fromRGB(205, 50, 255)
+getgenv().BulletTrailColor = Color3.fromRGB(205, 50, 255)
 
 local TrailsList = {}
 local TRAIL_MODELS = {
@@ -3552,6 +3601,20 @@ local TRAIL_MODELS = {
 }
 getgenv().BulletTrailModel = getgenv().BulletTrailModel or "Default"
 getgenv().BulletTrailLife = getgenv().BulletTrailLife or 15 -- в долях секунды (15 = 1.5 с)
+
+-- трейлы лежат в папке внутри камеры (не в workspace), чтобы raycast/touch игры их не видел
+local trailFolder
+local function getTrailFolder()
+    local cam = workspace.CurrentCamera
+    if not trailFolder or not trailFolder.Parent or trailFolder.Parent ~= cam then
+        if not trailFolder then
+            trailFolder = Instance.new("Folder")
+            trailFolder.Name = "\0fx"
+        end
+        trailFolder.Parent = cam
+    end
+    return trailFolder
+end
 
 local function trailPart(size, cf, color, life, base, ball)
     local part = Instance.new("Part")
@@ -3566,7 +3629,8 @@ local function trailPart(size, cf, color, life, base, ball)
     part.CFrame = cf
     if ball then part.Shape = Enum.PartType.Ball end
     part.Transparency = base or 0
-    part.Parent = t1.value1
+    part.Massless = true
+    part.Parent = getTrailFolder()
     life = life * (getgenv().BulletTrailLife or 15) / 15
     TrailsList[#TrailsList + 1] = { Part = part, Life = life, Max = life, Base = base or 0 }
     while #TrailsList > 700 do
@@ -3597,7 +3661,7 @@ local function CreateBulletTrail(startPos, endPos, color)
     trailFrame += 1
 
     if model == "Thunder" then
-        local n = math.clamp(math.floor(len / 1.5), 2, 24)
+        local n = math.max(2, math.floor(len / 1.5))
         local prev = startPos
         for i = 1, n do
             local p = startPos:Lerp(endPos, i / n)
@@ -3682,27 +3746,38 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
--- Game fires raycast-based bullets; physical bulletStorage parts are not reliable.
-fireTrailEffect = function(data)
-    local origin, direction = data.Origin, data.Direction
-    if typeof(origin) ~= "Vector3" or typeof(direction) ~= "Vector3" or direction.Magnitude < 0.001 then return end
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = t1.value8.Character and {t1.value8.Character} or {}
-    local distance = 220
-    local hit = workspace:Raycast(origin, direction.Unit * distance, params)
-    local finish = hit and hit.Position or origin + direction.Unit * distance
-    -- clamp complexity on long-distance shots
-    if (finish-origin).Magnitude > 70 then
-        finish = origin + direction.Unit * 70
+-- не создаём bulletStorage сами: пустая папка с этим именем могла ломать код игры.
+-- ждём, пока игра создаст её, и только слушаем.
+task.spawn(function()
+    local bulletStorage
+    while not bulletStorage do
+        bulletStorage = t1.value1:FindFirstChild("bulletStorage")
+        if not bulletStorage then task.wait(1) end
     end
-    CreateBulletTrail(origin, finish, getgenv().BulletTrailColor)
-end
+
+    bulletStorage.ChildAdded:Connect(function(child)
+        if not getgenv().BulletTrailsEnabled then return end
+        if not child:IsA("BasePart") then return end
+
+        local startPos = child.Position
+        local connection
+
+        connection = RunService.RenderStepped:Connect(function()
+            if child and child.Parent then
+                local endPos = child.Position
+                CreateBulletTrail(startPos, endPos, getgenv().BulletTrailColor)
+                startPos = endPos
+            else
+                connection:Disconnect()
+            end
+        end)
+    end)
+end)
 
 v18:AddToggle({
     Name = "Bullet Trails",
     Flag = "BulletTrails",
-    Default = false,
+    Default = getgenv().BulletTrailsEnabled,
     Callback = function(p)
         getgenv().BulletTrailsEnabled = p
     end
@@ -4076,121 +4151,339 @@ do
 end
 
 -- ============================================================
--- [CONFIG + THEME] Explicit mobile-friendly buttons.
+-- [CONFIG + THEME] SETTINGS tab
+-- CONFIG: выбор из списка, имя для нового, кнопки Save / Load / Delete / Reset
+-- THEME: пресеты акцентного цвета + Custom (hue/sat)
 -- ============================================================
 do
     local Cfg = t1.Cfg
-    local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-    local old = playerGui:FindFirstChild("LesxovSettingsPanel")
-    if old then old:Destroy() end
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "LesxovSettingsPanel"
-    gui.ResetOnSpawn = false
-    gui.Parent = playerGui
+    local t0 = os.clock() -- виджеты могут дёрнуть callback при создании
 
-    local panel = Instance.new("Frame")
-    panel.Name = "Panel"
-    panel.Size = UDim2.fromOffset(290, 300)
-    panel.Position = UDim2.new(1, -300, 0.5, -150)
-    panel.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
-    panel.BorderSizePixel = 0
-    panel.Visible = false
-    panel.Parent = gui
-    Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 9)
+    local function note(text, icon)
+        v11:Notify({ Title = "CONFIG", Content = text, Icon = icon or "check" })
+    end
 
-    local themeColors = {
-        Purple = Color3.fromRGB(175, 90, 255),
-        Blue = Color3.fromRGB(55, 145, 255),
-        Green = Color3.fromRGB(50, 210, 120),
-        Red = Color3.fromRGB(240, 70, 90),
-        Orange = Color3.fromRGB(255, 155, 45)
+    -- настоящая кнопка; если у либы нет AddButton, откатываемся на нажимаемый переключатель
+    local function addButton(sec, name, fn)
+        local ok = pcall(function()
+            sec:AddButton({ Name = name, Title = name, Text = name, Callback = fn })
+        end)
+        if ok then return end
+        sec:AddToggle({
+            Name = name,
+            Flag = "Btn_" .. name,
+            Default = false,
+            Callback = function()
+                if os.clock() - t0 < 3 then return end
+                fn()
+            end
+        })
+    end
+
+    local left = vSettings:AddSection({ Position = "left", Name = "CONFIG" })
+
+    local slotDd = left:AddDropdown({
+        Name = "Config",
+        Flag = "CfgSlot",
+        Values = Cfg.list(),
+        Default = Cfg.Slot,
+        Callback = function(p)
+            if type(p) == "string" then
+                Cfg.Slot = p
+                Cfg.saveMeta()
+            end
+        end
+    })
+
+    -- поле имени (если у либы есть текстбокс); пусто = сохраняем в выбранный конфиг
+    for _, method in ipairs({ "AddTextBox", "AddTextbox", "AddInput" }) do
+        local ok = pcall(function()
+            left[method](left, {
+                Name = "New config name",
+                Flag = "CfgNewName",
+                Placeholder = "name (empty = selected config)",
+                Default = "",
+                Callback = function(v) Cfg.NewName = tostring(v or "") end
+            })
+        end)
+        if ok then break end
+    end
+
+    left:AddToggle({
+        Name = "Autosave selected config (every 2s)",
+        Flag = "CfgAutosave",
+        Default = Cfg.Autosave,
+        Callback = function(p)
+            Cfg.Autosave = p
+            Cfg.saveMeta()
+        end
+    })
+
+    local function refreshList()
+        local list = Cfg.list()
+        for _, m in ipairs({ "SetValues", "Refresh", "UpdateValues", "SetOptions", "SetList" }) do
+            if pcall(function() slotDd[m](slotDd, list) end) then return true end
+        end
+        return false
+    end
+
+    local acts = vSettings:AddSection({ Position = "center", Name = "ACTIONS" })
+
+    addButton(acts, "Save", function()
+        local target = Cfg.Slot
+        if Cfg.NewName and Cfg.clean(Cfg.NewName) ~= "" then target = Cfg.clean(Cfg.NewName) end
+        local ok, name = Cfg.save(target)
+        if ok then
+            Cfg.Slot = name
+            Cfg.saveMeta()
+            local shown = refreshList()
+            note("saved: " .. name .. (shown and "" or " (new name appears in the list after re-execute)"))
+        else
+            note("save failed (no writefile?)", "x")
+        end
+    end)
+
+    addButton(acts, "Load", function()
+        if Cfg.load(Cfg.Slot) then
+            if t1.applyTheme then t1.applyTheme() end
+            note("loaded: " .. Cfg.Slot .. " (values apply now, menu switches refresh after re-execute)")
+        else
+            note("no config: " .. Cfg.Slot, "x")
+        end
+    end)
+
+    local delArmed = 0
+    addButton(acts, "Delete", function()
+        if os.clock() - delArmed > 4 then
+            delArmed = os.clock()
+            note("press Delete again within 4s to remove: " .. Cfg.Slot, "x")
+            return
+        end
+        delArmed = 0
+        local name = Cfg.Slot
+        if Cfg.delete(name) then
+            if name ~= "default" then Cfg.Slot = "default" end
+            Cfg.saveMeta()
+            Cfg._last = game:GetService("HttpService"):JSONEncode(Cfg.snapshot())
+            refreshList()
+            note("deleted: " .. name)
+        else
+            note("nothing to delete: " .. name, "x")
+        end
+    end)
+
+    addButton(acts, "Reset values to defaults", function()
+        Cfg.resetValues()
+        if t1.applyTheme then t1.applyTheme() end
+        note("values reset (not saved until you press Save)")
+    end)
+
+    -- ---------------- THEME ----------------
+    local right = vSettings:AddSection({ Position = "right", Name = "THEME" })
+    right:AddDropdown({
+        Name = "Theme",
+        Flag = "ThemeName",
+        Values = { "Default", "Blue", "Purple", "Green", "Red", "Orange", "Yellow", "Cyan", "Mono", "Custom" },
+        Default = getgenv().Theme,
+        Callback = function(p)
+            getgenv().Theme = p
+            if t1.applyTheme then t1.applyTheme() end
+        end
+    })
+    right:AddSlider({
+        Name = "Custom hue",
+        Flag = "ThemeHueSlider",
+        Min = 0, Max = 360,
+        Default = math.clamp(getgenv().ThemeHue, 0, 360),
+        Callback = function(p)
+            getgenv().ThemeHue = p
+            if getgenv().Theme == "Custom" and t1.applyTheme then t1.applyTheme() end
+        end
+    })
+    right:AddSlider({
+        Name = "Custom saturation",
+        Flag = "ThemeSatSlider",
+        Min = 0, Max = 100,
+        Default = math.clamp(getgenv().ThemeSat, 0, 100),
+        Callback = function(p)
+            getgenv().ThemeSat = p
+            if getgenv().Theme == "Custom" and t1.applyTheme then t1.applyTheme() end
+        end
+    })
+end
+
+-- ============================================================
+-- [THEME ENGINE] перекрашивает акцентный цвет окна либы.
+-- акцент определяется автоматически (самый частый насыщенный оттенок в окне),
+-- поэтому не зависит от имён внутренних объектов. тёмный фон не трогаем.
+-- ============================================================
+do
+    local Players = game:GetService("Players")
+    local PRESETS = { -- h = оттенок 0..1, s = множитель насыщенности
+        Blue = { h = 0.60, s = 1 }, Purple = { h = 0.75, s = 1 }, Green = { h = 0.37, s = 1 },
+        Red = { h = 0.99, s = 1 }, Orange = { h = 0.07, s = 1 }, Yellow = { h = 0.14, s = 1 },
+        Cyan = { h = 0.5, s = 1 }, Mono = { h = 0, s = 0 },
     }
-    local function applyTheme(name)
-        if not themeColors[name] then return end
-        getgenv().LesxovTheme = name
-        panel.BackgroundColor3 = themeColors[name]:Lerp(Color3.fromRGB(15, 15, 19), 0.88)
-        for _, child in ipairs(panel:GetChildren()) do
-            if child:IsA("TextButton") and child.Name ~= "Close" then
-                child.BackgroundColor3 = themeColors[name]:Lerp(Color3.fromRGB(22,22,26), 0.65)
+
+    local root, accentH, accentS
+    local ver = 0
+    local records = setmetatable({}, { __mode = "k" }) -- [inst][prop] = {orig, last, ver}
+    local sweeping, sweepUntil = false, 0
+
+    local function hueNear(h, h0)
+        local d = math.abs(h - h0)
+        return math.min(d, 1 - d) < 0.05
+    end
+
+    local function isAccent(c)
+        local h, s, v = c:ToHSV()
+        return s > 0.35 and v > 0.35 and accentH ~= nil and hueNear(h, accentH)
+    end
+
+    local function currentTheme()
+        local name = getgenv().Theme
+        if name == "Default" or not name then return nil end
+        if name == "Custom" then
+            local s0 = math.max(accentS or 0.6, 0.1)
+            return { h = (getgenv().ThemeHue or 330) / 360, s = ((getgenv().ThemeSat or 70) / 100) / s0 }
+        end
+        return PRESETS[name]
+    end
+
+    local function remap(c, th)
+        if not th then return c end
+        local _, s, v = c:ToHSV()
+        return Color3.fromHSV(th.h, math.clamp(s * th.s, 0, 1), v)
+    end
+
+    local function findRoot()
+        local roots = {}
+        pcall(function() if gethui then roots[#roots + 1] = gethui() end end)
+        roots[#roots + 1] = game:GetService("CoreGui")
+        local pg = Players.LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then roots[#roots + 1] = pg end
+        for _, r in ipairs(roots) do
+            local ok, gui = pcall(function()
+                for _, d in ipairs(r:GetDescendants()) do
+                    if d:IsA("TextLabel") and d.Text == "Lesxov Tap" then
+                        return d:FindFirstAncestorWhichIsA("ScreenGui")
+                    end
+                end
+            end)
+            if ok and gui then return gui end
+        end
+    end
+
+    local function propsOf(d)
+        if d:IsA("UIStroke") then return { "Color" } end
+        if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then return { "BackgroundColor3", "TextColor3" } end
+        if d:IsA("ImageLabel") or d:IsA("ImageButton") then return { "BackgroundColor3", "ImageColor3" } end
+        if d:IsA("ScrollingFrame") then return { "BackgroundColor3", "ScrollBarImageColor3" } end
+        if d:IsA("GuiObject") then return { "BackgroundColor3" } end
+        return nil
+    end
+
+    local function detect()
+        local bins, sampleS = {}, {}
+        for _, d in ipairs(root:GetDescendants()) do
+            local props = propsOf(d)
+            if props then
+                for _, prop in ipairs(props) do
+                    local c = d[prop]
+                    local h, s, v = c:ToHSV()
+                    if s > 0.45 and v > 0.5 then
+                        local k = math.floor(h * 50)
+                        bins[k] = (bins[k] or 0) + 1
+                        sampleS[k] = (sampleS[k] or 0) + s
+                    end
+                end
+            end
+        end
+        local bestK, bestN = nil, 0
+        for k, n in pairs(bins) do
+            if n > bestN then bestK, bestN = k, n end
+        end
+        if not bestK then return false end
+        accentH = (bestK + 0.5) / 50
+        accentS = sampleS[bestK] / bestN
+        return true
+    end
+
+    local function applyProp(d, prop, th)
+        local rec = records[d] and records[d][prop]
+        if not rec then return end
+        d[prop] = remap(rec.orig, th)
+        rec.last = d[prop]
+        rec.ver = ver
+    end
+
+    local function processInst(d, th)
+        if d:IsA("UIGradient") then
+            local rec = records[d] and records[d].Color
+            if not rec or rec.ver ~= ver then
+                local origSeq = rec and rec.orig or d.Color
+                local pts, any = {}, false
+                for _, kp in ipairs(origSeq.Keypoints) do
+                    if isAccent(kp.Value) then any = true end
+                    pts[#pts + 1] = ColorSequenceKeypoint.new(kp.Time, remap(kp.Value, th))
+                end
+                if any then
+                    records[d] = records[d] or {}
+                    records[d].Color = { orig = origSeq, ver = ver }
+                    d.Color = ColorSequence.new(pts)
+                end
+            end
+            return
+        end
+        local props = propsOf(d)
+        if not props then return end
+        for _, prop in ipairs(props) do
+            local c = d[prop]
+            local byInst = records[d]
+            local rec = byInst and byInst[prop]
+            if rec and c == rec.last then
+                if rec.ver ~= ver then applyProp(d, prop, th) end
+            elseif isAccent(c) then
+                if not byInst then byInst = {}; records[d] = byInst end
+                byInst[prop] = { orig = c, last = c, ver = -1 }
+                applyProp(d, prop, th)
+            elseif rec then
+                byInst[prop] = nil
             end
         end
     end
-    local function button(name, title, x, y, w, h, callback)
-        local b = Instance.new("TextButton")
-        b.Name = name
-        b.Text = title
-        b.Font = Enum.Font.GothamBold
-        b.TextSize = 14
-        b.TextColor3 = Color3.new(1,1,1)
-        b.BackgroundColor3 = Color3.fromRGB(60,60,70)
-        b.BorderSizePixel = 0
-        b.Position = UDim2.fromOffset(x,y)
-        b.Size = UDim2.fromOffset(w,h)
-        b.Parent = panel
-        Instance.new("UICorner",b).CornerRadius = UDim.new(0,6)
-        b.MouseButton1Click:Connect(callback)
-        return b
-    end
-    local function label(text, y)
-        local l = Instance.new("TextLabel")
-        l.BackgroundTransparency = 1
-        l.TextColor3 = Color3.new(1,1,1)
-        l.Font = Enum.Font.GothamBold
-        l.TextSize = 13
-        l.Text = text
-        l.Position = UDim2.fromOffset(12,y)
-        l.Size = UDim2.fromOffset(265,22)
-        l.Parent = panel
-        return l
-    end
-    local function notify(msg)
-        pcall(function() v11:Notify({Title="Lesxov Tap",Content=msg,Icon="check"}) end)
-    end
-    label("CONFIGURATION", 9)
-    local slotButton
-    slotButton = button("Slot", "Slot: "..Cfg.Slot, 12, 39, 265, 34, function()
-        local i = table.find(Cfg.Slots, Cfg.Slot) or 1
-        Cfg.Slot = Cfg.Slots[i % #Cfg.Slots + 1]
-        Cfg.saveMeta()
-        slotButton.Text = "Slot: "..Cfg.Slot
-    end)
-    button("Save", "SAVE", 12, 82, 82, 38, function()
-        notify(Cfg.save() and "Saved: "..Cfg.Slot or "Save failed: check writefile")
-    end)
-    button("Load", "LOAD", 103, 82, 82, 38, function()
-        notify(Cfg.load() and "Loaded (reopen menu to refresh controls)" or "No saved file")
-        applyTheme(getgenv().LesxovTheme)
-    end)
-    button("Delete", "DELETE", 194, 82, 83, 38, function()
-        local path = Cfg.Folder.."/"..Cfg.Slot..".json"
-        if type(delfile) == "function" and type(isfile) == "function" then
-            local ok = pcall(function() if isfile(path) then delfile(path) end end)
-            notify(ok and "Deleted: "..Cfg.Slot or "Delete failed")
-        else
-            notify("Executor does not support delfile")
-        end
-    end)
-    label("THEME", 132)
-    local names = {"Purple","Blue","Green","Red","Orange"}
-    for i, name in ipairs(names) do
-        local x = 12 + ((i-1)%3)*91
-        local y = 160 + math.floor((i-1)/3)*40
-        button("Theme"..name, name, x,y,82,34,function()
-            applyTheme(name)
-            Cfg.save()
-        end)
-    end
-    local close = button("Close", "CLOSE", 12, 249, 265, 36, function()
-        panel.Visible = false
-    end)
-    applyTheme(getgenv().LesxovTheme)
 
-    -- The main menu has a simple entry to this independent panel.
-    local sec = vSettings:AddSection({Position="left",Name="CONFIG & THEMES"})
-    sec:AddToggle({
-        Name = "Open Config / Theme Panel",
-        Flag = "OpenLesxovSettings",
-        Default = false,
-        Callback = function(v) panel.Visible = v end
-    })
+    function t1.applyTheme()
+        ver += 1
+        sweeping = true
+        -- на Default дочищаем ещё 4 секунды, для остальных тем свип идёт постоянно (ловит твины либы)
+        sweepUntil = currentTheme() and math.huge or (os.clock() + 4)
+    end
+
+    task.spawn(function()
+        while not root do
+            root = findRoot()
+            if not root then task.wait(1) end
+        end
+        task.wait(0.5)
+        if not detect() then return end
+        if currentTheme() then t1.applyTheme() end
+
+        -- нарезка по кадрам: ~300 объектов за кадр, без фризов
+        local list, idx = root:GetDescendants(), 1
+        game:GetService("RunService").RenderStepped:Connect(function()
+            if not sweeping then return end
+            if os.clock() > sweepUntil then sweeping = false return end
+            local th = currentTheme()
+            for _ = 1, 300 do
+                local d = list[idx]
+                if not d then
+                    list, idx = root:GetDescendants(), 1
+                    break
+                end
+                idx += 1
+                if d.Parent then pcall(processInst, d, th) end
+            end
+        end)
+    end)
 end
