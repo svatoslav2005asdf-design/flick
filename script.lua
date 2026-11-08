@@ -3528,6 +3528,7 @@ local TRAIL_MODELS = {
     "DNA", "Sparks", "Rainbow", "Fire", "Rings", "Glitch"
 }
 getgenv().BulletTrailModel = getgenv().BulletTrailModel or "Default"
+getgenv().BulletTrailLife = getgenv().BulletTrailLife or 15 -- в долях секунды (15 = 1.5 с)
 
 local function trailPart(size, cf, color, life, base, ball)
     local part = Instance.new("Part")
@@ -3543,6 +3544,7 @@ local function trailPart(size, cf, color, life, base, ball)
     if ball then part.Shape = Enum.PartType.Ball end
     part.Transparency = base or 0
     part.Parent = t1.value1
+    life = life * (getgenv().BulletTrailLife or 15) / 15
     TrailsList[#TrailsList + 1] = { Part = part, Life = life, Max = life, Base = base or 0 }
     while #TrailsList > 700 do
         pcall(function() TrailsList[1].Part:Destroy() end)
@@ -3696,6 +3698,16 @@ v18:AddColorPicker({
     end
 })
 
+v18:AddSlider({
+    Name = "Trail Lifetime (x0.1s)",
+    Flag = "BulletTrailLife",
+    Min = 2, Max = 100,
+    Default = math.clamp(getgenv().BulletTrailLife, 2, 100),
+    Callback = function(p)
+        getgenv().BulletTrailLife = p
+    end
+})
+
 v18:AddDropdown({
     Name = "Trail Model",
     Flag = "BulletTrailModel",
@@ -3714,9 +3726,16 @@ v18:AddDropdown({
 -- памяти модуля, а не в инстансах — в консоли будет [NoReload] 0 tracked
 -- ============================================================
 do
-    local pats = { "ammo", "mag", "clip", "bullet", "round" }
+    local pats = { "ammo", "magazine", "clip", "bullets", "rounds" }
+    local exact = { mag = true, mags = true, bullet = true, round = true }
+    local skip = { "damage", "speed", "spread", "recoil", "size", "range", "time", "delay",
+        "rate", "drop", "penetr", "velocity", "life", "gravity", "max", "pellet", "multi" }
     local function isAmmo(n)
         n = n:lower()
+        for _, w in ipairs(skip) do
+            if n:find(w, 1, true) then return false end
+        end
+        if exact[n] then return true end
         for _, w in ipairs(pats) do
             if n:find(w, 1, true) then return true end
         end
