@@ -79,40 +79,32 @@ local QualityLevel = settings().Rendering.QualityLevel
 if QualityLevel == Enum.QualityLevel.Level01 or (QualityLevel == Enum.QualityLevel.Level02 or QualityLevel == Enum.QualityLevel.Level03) then
     settings().Rendering.QualityLevel = Enum.QualityLevel.Level04
 end
-local Sound = Instance.new("Sound")
-
-Sound.SoundId = "rbxassetid://83501702295138"
-Sound.Volume = 0.3
-Sound.Looped = false
-Sound.Parent = t1.value1
 local v9 = loadstring(game:HttpGet("https://raw.githubusercontent.com/CludeHub/FATALITY/refs/heads/main/FATALITYSOURCE.lua"))()
-local Play = Sound.Play
 local v11 = v9:CreateNotifier()
-Play(Sound)
+-- интро без звука
 v9:Loader({
-	Name = "FATALITY",
+	Name = "Lesxov Tap",
 	Duration = 4
 })
 local v12 = "Hello, " .. game.Players.LocalPlayer.DisplayName .. "! Welcome back."
 v11:Notify({
-	Title = "FATALITY",
-	Content = v12,
+	Title = "Lesxov Tap",
+	Content = "made by lesxov",
 	Icon = "clipboard"
 })
-
 v11:Notify({
-    Title = "FATALITY LOADED",
-    Content = "By https://t.me/vomagla",
+    Title = "LESXOV TAP LOADED",
+    Content = v12,
     Icon = "check"
 })
 
 local v13 = v9.new({
-	Name = "FATALITY",
+	Name = "Lesxov Tap",
 	Expire = "never"
 })
 local UserInputService = game:GetService("UserInputService")
 
-t1.value4 = game.CoreGui:WaitForChild("FATALITY"):WaitForChild("FatalFtame")
+t1.value4 = game.CoreGui:WaitForChild("Lesxov Tap"):WaitForChild("FatalFtame")
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then
         return
@@ -122,7 +114,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         t1.value4.Visible = not t1.value4.Visible
     end
 end)
-v13:AddConfig():Init("Counter-Strike 2", "Fatality-Win")
+v13:AddConfig():Init("Counter-Strike 2", "Lesxov-Win")
 
 local function mkMenu(name, icon)
 	local ok, m = pcall(function()
@@ -170,12 +162,12 @@ local v22 = v15:AddSection({
 
 -- ============================================================
 -- [CONFIG] core: JSON save/load, 3 slots, autosave
--- files: FatalityFlick/<slot>.json + meta.json (workspace folder of the executor)
+-- files: LesxovTap/<slot>.json + meta.json (workspace folder of the executor)
 -- ============================================================
 do
     local HttpService = game:GetService("HttpService")
     local Cfg = {
-        Folder = "FatalityFlick",
+        Folder = "LesxovTap",
         Slots = { "default", "slot2", "slot3" },
         Slot = "default",
         Autosave = true,
@@ -186,6 +178,9 @@ do
             "RageBotEnabled", "RageBotHitbox", "RageBotAutoFire",
             "AttackIntervalEnabled", "AttackInterval", "AttackHold", "AttackJitter",
             "PenetrationEnabled", "PenetrationMax",
+            "RageMagEnabled", "WallbangEnabled", "FireRateEnabled", "FireRateMult",
+            "GodModeEnabled", "CrosshairEnabled", "CrosshairSize", "CrosshairGap",
+            "SkinEnabled", "SkinName", "SnowStyle",
             "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll",
         },
     }
@@ -337,6 +332,17 @@ getgenv().AttackHold = 50        -- ms the fire input stays down
 getgenv().AttackJitter = 0       -- +/- ms random on the interval
 getgenv().PenetrationEnabled = false
 getgenv().PenetrationMax = 3     -- surfaces a shot may pass through
+getgenv().RageMagEnabled = false
+getgenv().WallbangEnabled = false
+getgenv().FireRateEnabled = false
+getgenv().FireRateMult = 2
+getgenv().GodModeEnabled = false
+getgenv().CrosshairEnabled = false
+getgenv().CrosshairSize = 12
+getgenv().CrosshairGap = 4
+getgenv().SkinEnabled = false
+getgenv().SkinName = "Random"
+getgenv().SnowStyle = "Realistic"
 t1.Cfg.init()
 
 local cam = t1.value6.CurrentCamera
@@ -373,7 +379,7 @@ function getRageBotTarget()
                 
                 local isVisible = not result or result.Instance:IsDescendantOf(char)
                 
-                if isVisible then
+                if isVisible or getgenv().WallbangEnabled then
                     local dist = (targetPart.Position - cam.CFrame.Position).Magnitude
                     if dist < closestDist then
                         closestDist = dist
@@ -420,7 +426,7 @@ do
     end
 
     function Pen.arm(data)
-        if not getgenv().PenetrationEnabled then return end
+        if not (getgenv().PenetrationEnabled or getgenv().WallbangEnabled) then return end
         if not data or not data.Origin or not data.Direction then return end
 
         local limit = getgenv().PenetrationMax or 3
@@ -488,7 +494,7 @@ local function getSilentAimTarget()
                 if d < closestDist then
                     local dir = (targetPart.Position - cam.CFrame.Position).Unit * d
                     local hit = t1.value6:Raycast(cam.CFrame.Position, dir, rayParams)
-                    if not hit or hit.Instance:IsDescendantOf(player.Character) then
+                    if not hit or hit.Instance:IsDescendantOf(player.Character) or getgenv().WallbangEnabled then
                         closestDist = d
                         closest = targetPart
                     end
@@ -567,6 +573,10 @@ do
             local g = getgenv()
             if g.RageBotEnabled and g.RageBotAutoFire and getRageBotTarget() then
                 local interval, hold = 0.1, 0.05
+                if g.RageMagEnabled then
+                    -- rage mag: стреляет сразу, как только цель появилась
+                    interval, hold = 0.03, 0.015
+                end
                 if g.AttackIntervalEnabled then
                     interval = g.AttackInterval / 1000
                     if g.AttackJitter > 0 then
@@ -582,7 +592,7 @@ do
                 SignalManager.Fire("FireWeapon", Enum.UserInputState.End)
                 task.wait(math.max(interval - hold, 0.01))
             else
-                task.wait(0.05)
+                task.wait(g.RageMagEnabled and 0.01 or 0.05)
             end
         end
     end)
@@ -624,6 +634,24 @@ v22:AddToggle({
     Default = getgenv().RageBotAutoFire,
     Callback = function(p)
         getgenv().RageBotAutoFire = p
+    end
+})
+
+v22:AddToggle({
+    Name = "Rage Mag (instant fire)",
+    Flag = "RageMagEnabled",
+    Default = getgenv().RageMagEnabled,
+    Callback = function(p)
+        getgenv().RageMagEnabled = p
+    end
+})
+
+v22:AddToggle({
+    Name = "Wallbang (shoot through walls)",
+    Flag = "WallbangEnabled",
+    Default = getgenv().WallbangEnabled,
+    Callback = function(p)
+        getgenv().WallbangEnabled = p
     end
 })
 
@@ -1382,6 +1410,22 @@ Option4:AddColorPicker({
     t1.value58.Color = p49
 end
 })
+Option4:AddDropdown({
+        Name = "Snow Style",
+        Flag = "SnowStyle",
+        Values = {
+                "Line",
+                "Realistic"
+        },
+        Default = getgenv().SnowStyle or "Realistic",
+        Callback = function(val)
+    getgenv().SnowStyle = val
+    for _, v in pairs(t1.value56) do
+        pcall(function() v:Destroy() end)
+    end
+    table.clear(t1.value56)
+end
+})
 t1.value53.RenderStepped:Connect(function()
     if t1.value59.Type == "Rain" then
         if #t1.value55 < t1.value57.Density then
@@ -1412,17 +1456,28 @@ t1.value53.RenderStepped:Connect(function()
     end
 
     if t1.value59.Type == "Snow" then
+        local style = getgenv().SnowStyle or "Realistic"
+        local snowDt = t1.value53.RenderStepped:Wait()
         if #t1.value56 < t1.value58.Density then
             local Part = Instance.new("Part")
 
             Part.Anchored = true
             Part.CanCollide = false
-            Part.Shape = Enum.PartType.Ball
+            Part.CanQuery = false
             Part.Color = t1.value58.Color
             Part.Material = Enum.Material.Neon
-            Part.Size = Vector3.new(t1.value58.Size, t1.value58.Size, t1.value58.Size)
-            Part.Transparency = 0.2
+            if style == "Line" then
+                -- падают строчкой
+                Part.Size = Vector3.new(0.06, 2.2, 0.06)
+                Part.Transparency = 0.3
+            else
+                -- как в реальной жизни: хлопья с дрейфом
+                Part.Shape = Enum.PartType.Ball
+                Part.Size = Vector3.new(t1.value58.Size, t1.value58.Size, t1.value58.Size)
+                Part.Transparency = 0.2
+            end
             Part.Parent = t1.value1
+            Part:SetAttribute("SnowSeed", math.random() * math.pi * 2)
             table.insert(t1.value56, Part)
         end
 
@@ -1431,10 +1486,12 @@ t1.value53.RenderStepped:Connect(function()
                 if v.Position.Y < t1.value54.CFrame.Position.Y - 30 then
                     v.Position = t1.value54.CFrame.Position + Vector3.new(math.random(-60, 60), 60, math.random(-60, 60))
                 else
-                    local s3 = "Position"
-                    local vector3 = Vector3.new(0, t1.value58.Speed * t1.value53.RenderStepped:Wait(), 0)
-
-                    v[s3] = v[s3] - vector3
+                    local fall = Vector3.new(0, t1.value58.Speed * snowDt, 0)
+                    if style == "Realistic" then
+                        local seed = v:GetAttribute("SnowSeed") or 0
+                        fall += Vector3.new(math.sin(tick() * 1.5 + seed) * snowDt * 6, 0, math.cos(tick() * 1.1 + seed) * snowDt * 4)
+                    end
+                    v.Position -= fall
                 end
             end
         end
@@ -1466,10 +1523,26 @@ local t5 = {
 	SkyboxRt = "rbxassetid://154184972",
 	SkyboxFt = "rbxassetid://154185021"
 }
+local function skyset(id)
+	return {
+		SkyboxLf = "rbxassetid://" .. id,
+		SkyboxUp = "rbxassetid://" .. id,
+		SkyboxDn = "rbxassetid://" .. id,
+		SkyboxBk = "rbxassetid://" .. id,
+		SkyboxRt = "rbxassetid://" .. id,
+		SkyboxFt = "rbxassetid://" .. id
+	}
+end
+-- Nebula: заглушка. Вставь свой decal id вместо "0" (toolbox -> skybox -> copy asset id)
 local t6 = {
 	["Two moon"] = t3,
 	Aurora = t4,
 	Night = t5,
+	Galaxy = skyset("159454299"),
+	["Deep Space"] = skyset("77384233173949"),
+	Skeleton = skyset("16000894791"),
+	["Classic Blue"] = skyset("144933338"),
+	Nebula = skyset("0"),
 	Default = nil
 }
 t1.value62 = nil
@@ -1499,11 +1572,16 @@ v19:AddDropdown({
 	Name = "Skybox",
 	Flag = "Skybox",
 	Values = {
-		"Default",
-		"Two moon",
-		"Aurora",
-		"Night"
-	},
+                "Default",
+                "Two moon",
+                "Aurora",
+                "Night",
+                "Galaxy",
+                "Deep Space",
+                "Skeleton",
+                "Classic Blue",
+                "Nebula"
+        },
 	Default = "Default",
 	Callback = function(p51)
     t1.value63(p51)
@@ -1597,6 +1675,7 @@ t1.value72 = Players2.LocalPlayer
 t1.value73 = {}
 t1.value74 = {}
 t1.value75 = {}
+t1.value75b = {}
 local function v69(p57)
     if p57 == t1.value72 then
         return
@@ -1631,6 +1710,15 @@ local function v69(p57)
     drawing3.OutlineColor = Color3.new(0, 0, 0)
     t1.value75[p57] = drawing3
 end
+    local drawing4 = Drawing.new("Text")
+
+    drawing4.Visible = false
+    drawing4.Color = Color3.new(1, 1, 1)
+    drawing4.Size = 8
+    drawing4.Center = true
+    drawing4.Outline = true
+    drawing4.OutlineColor = Color3.new(0, 0, 0)
+    t1.value75b[p57] = drawing4
 local GetPlayers = Players2.GetPlayers
 Players2.PlayerRemoving:Connect(function(player)
     if t1.value73[player] then
@@ -1646,6 +1734,10 @@ Players2.PlayerRemoving:Connect(function(player)
     if t1.value75[player] then
         t1.value75[player]:Remove()
         t1.value75[player] = nil
+    end
+    if t1.value75b[player] then
+        t1.value75b[player]:Remove()
+        t1.value75b[player] = nil
     end
 end)
 
@@ -1663,6 +1755,7 @@ RunService3.RenderStepped:Connect(function()
         local v328 = t1.value74[v323]
         local v329 = t1.value75[v323]
 
+        local v329b = t1.value75b[v323]
         if v325 then
             v327 = v326 and v326.Health > 0
         end
@@ -1678,7 +1771,7 @@ RunService3.RenderStepped:Connect(function()
                 end
 
                 if v329 then
-                    v329.Visible = false
+                    v329.Visible = false; if v329b then v329b.Visible = false end
                 end
             else
                 local v330, v331 = t1.value71:WorldToViewportPoint(v325.Position)
@@ -1728,12 +1821,20 @@ RunService3.RenderStepped:Connect(function()
                         v329.Position = Vector2.new(v330.X, v330.Y - v333 / 2 - 15)
                         v329.Visible = true
                     else
-                        v329.Visible = false
+                        v329.Visible = false; if v329b then v329b.Visible = false end
+                    end
+
+                    if _G.ESP_Dist_Enabled and v329b then
+                        v329b.Text = math.floor((v325.Position - t1.value71.CFrame.Position).Magnitude + 0.5) .. "m"
+                        v329b.Position = Vector2.new(v330.X, v330.Y + v333 / 2 + 2)
+                        v329b.Visible = true
+                    elseif v329b then
+                        v329b.Visible = false
                     end
                 else
                     v.Visible = false
                     v328.Visible = false
-                    v329.Visible = false
+                    v329.Visible = false; if v329b then v329b.Visible = false end
                 end
             end
         else
@@ -1744,7 +1845,7 @@ RunService3.RenderStepped:Connect(function()
             end
 
             if v329 then
-                v329.Visible = false
+                v329.Visible = false; if v329b then v329b.Visible = false end
             end
         end
     end
@@ -1754,12 +1855,16 @@ v18:AddDropdown({
 	Flag = "Esp",
 	Multi = true,
 	Values = {
-		"Box",
-		"Name"
-	},
+                "Box",
+                "Name",
+                "Health",
+                "Distance"
+        },
 	Callback = function(p58)
     _G.ESP_Box_Enabled = p58.Box or false
     _G.ESP_Name_Enabled = p58.Name or false
+    _G.ESP_Health_Enabled = p58.Health or false
+    _G.ESP_Dist_Enabled = p58.Distance or false
 end
 })
 t1.value76 = game:GetService("Players")
@@ -2122,7 +2227,7 @@ local function ApplyPoseMode(char, mode, tickVal)
     local upperTorso = char:FindFirstChild("UpperTorso")
     local lowerTorso = char:FindFirstChild("LowerTorso")
 
-    if mode ~= "Jitler" and mode ~= "Yitler" then
+    if mode ~= "Jitler" and mode ~= "Yitler" and mode ~= "Back" and mode ~= "Undo Back" then
         for motor, origC0 in pairs(OriginalJointsCache) do
             if motor and motor.Parent then
                 motor.C0 = origC0
@@ -2179,6 +2284,25 @@ local function ApplyPoseMode(char, mode, tickVal)
             if lHip and OriginalJointsCache[lHip] then
                 lHip.C0 = OriginalJointsCache[lHip] * CFrame.new(0, 0.45, -0.35) * CFrame.Angles(-math.rad(55), 0, math.rad(85) - jitterOsc * 0.5)
             end
+
+            if mode == "Back" or mode == "Undo Back" then
+                local bend = (mode == "Undo Back") and 95 or 50
+                if neck and OriginalJointsCache[neck] then
+                    neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(bend * 0.4), 0, 0)
+                end
+                if rShoulder and OriginalJointsCache[rShoulder] then
+                    rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(-math.rad(bend), 0, math.rad(10))
+                end
+                if lShoulder and OriginalJointsCache[lShoulder] then
+                    lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(-math.rad(bend), 0, -math.rad(10))
+                end
+                if rHip and OriginalJointsCache[rHip] then
+                    rHip.C0 = OriginalJointsCache[rHip] * CFrame.Angles(math.rad(bend * 0.5), 0, math.rad(5))
+                end
+                if lHip and OriginalJointsCache[lHip] then
+                    lHip.C0 = OriginalJointsCache[lHip] * CFrame.Angles(math.rad(bend * 0.5), 0, -math.rad(5))
+                end
+            end
         end
     elseif upperTorso and lowerTorso then
         -- R15 персонаж
@@ -2233,6 +2357,31 @@ local function ApplyPoseMode(char, mode, tickVal)
             if lKnee and OriginalJointsCache[lKnee] then
                 lKnee.C0 = OriginalJointsCache[lKnee] * CFrame.Angles(-math.rad(110) - jitterOsc * 0.5, 0, 0)
             end
+
+            if mode == "Back" or mode == "Undo Back" then
+                local bend = (mode == "Undo Back") and 95 or 50
+                if neck and OriginalJointsCache[neck] then
+                    neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(bend * 0.4), 0, 0)
+                end
+                if rShoulder and OriginalJointsCache[rShoulder] then
+                    rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(-math.rad(bend), 0, math.rad(10))
+                end
+                if lShoulder and OriginalJointsCache[lShoulder] then
+                    lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(-math.rad(bend), 0, -math.rad(10))
+                end
+                if rHip and OriginalJointsCache[rHip] then
+                    rHip.C0 = OriginalJointsCache[rHip] * CFrame.Angles(math.rad(bend * 0.5), 0, math.rad(5))
+                end
+                if lHip and OriginalJointsCache[lHip] then
+                    lHip.C0 = OriginalJointsCache[lHip] * CFrame.Angles(math.rad(bend * 0.5), 0, -math.rad(5))
+                end
+                if rKnee and OriginalJointsCache[rKnee] then
+                    rKnee.C0 = OriginalJointsCache[rKnee] * CFrame.Angles(math.rad(bend * 0.4), 0, 0)
+                end
+                if lKnee and OriginalJointsCache[lKnee] then
+                    lKnee.C0 = OriginalJointsCache[lKnee] * CFrame.Angles(math.rad(bend * 0.4), 0, 0)
+                end
+            end
         end
     end
 end
@@ -2243,7 +2392,7 @@ end
 -- ============================================================
 do
     local sec = t1.mMove:AddSection({ Position = "center", Name = "SPIN" })
-    local modes = { "Basic Spin", "Jitler", "Yitler", "Sway", "Static Jitter" }
+    local modes = { "Basic Spin", "Jitler", "Yitler", "Sway", "Static Jitter", "Undo", "Back", "Undo Back" }
     if not table.find(modes, getgenv().SpinMode) then getgenv().SpinMode = "Basic Spin" end
 
     local function restore()
@@ -2292,6 +2441,39 @@ do
     })
 end
 
+-- kill tracker для Back / Undo Back: запоминаем, где умер последний убитый
+local LastDeathPos = nil
+do
+    local PlayersT = game:GetService("Players")
+    local function hookPlayer(pl)
+        local function onChar(char)
+            local hum = char:WaitForChild("Humanoid", 10)
+            if hum then
+                hum.Died:Connect(function()
+                    local c = pl.Character
+                    local root = c and (c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart)
+                    if root then
+                        LastDeathPos = root.Position
+                    end
+                end)
+            end
+        end
+        pl.CharacterAdded:Connect(onChar)
+        if pl.Character then
+            task.spawn(onChar, pl.Character)
+        end
+    end
+    for _, pl in ipairs(PlayersT:GetPlayers()) do
+        if pl ~= t1.value99 then hookPlayer(pl) end
+    end
+    PlayersT.PlayerAdded:Connect(hookPlayer)
+    t1.value1.ChildAdded:Connect(function(child)
+        if child.Name == "deadbody" then
+            LastDeathPos = child:GetPivot().Position
+        end
+    end)
+end
+
 local currentSpinYaw = 0
 local jitterFlip = false
 
@@ -2304,6 +2486,26 @@ RunService5.RenderStepped:Connect(function(dt)
     if not hrp or not hum or hum.Health <= 0 then return end
 
     hum.AutoRotate = false
+    local spinMode0 = getgenv().SpinMode
+    if spinMode0 == "Back" or spinMode0 == "Undo Back" then
+        -- разворот тела в сторону последнего убитого
+        if LastDeathPos then
+            local flat = Vector3.new(LastDeathPos.X - hrp.Position.X, 0, LastDeathPos.Z - hrp.Position.Z)
+            if flat.Magnitude > 0.5 then
+                hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + flat)
+            end
+        end
+        if spinMode0 == "Undo Back" then
+            ApplyPoseMode(char, "Undo Back", tick())
+        else
+            for motor, origC0 in pairs(OriginalJointsCache) do
+                if motor and motor.Parent then
+                    motor.C0 = origC0
+                end
+            end
+        end
+        return
+    end
     local mode = getgenv().SpinMode or "Basic Spin"
     local speed = getgenv().SpinSpeed or 25
     local jitterDeg = getgenv().SpinJitterAngle or 65
@@ -2313,10 +2515,8 @@ RunService5.RenderStepped:Connect(function(dt)
     jitterFlip = not jitterFlip
 
     local finalYaw = math.rad(currentSpinYaw)
-    if mode == "Jitler" or mode == "Yitler" then
-        local jitterOffset = jitterFlip and math.rad(jitterDeg) or -math.rad(jitterDeg)
-        finalYaw = finalYaw + jitterOffset
-    elseif mode == "Sway" or mode == "Static Jitter" then
+    -- Jitler / Yitler: чистый спин, jitter остаётся только в позе — без размазанного yaw
+    if mode == "Sway" or mode == "Static Jitter" then
         -- relative to where the camera looks
         local _, camYaw = workspace.CurrentCamera.CFrame:ToOrientation()
         if mode == "Sway" then
@@ -2327,7 +2527,11 @@ RunService5.RenderStepped:Connect(function(dt)
     end
 
     local pos = hrp.Position
-    hrp.CFrame = CFrame.new(pos) * CFrame.Angles(0, finalYaw, math.rad(rollDeg))
+    if mode == "Undo" then
+        hrp.CFrame = CFrame.new(pos) * CFrame.Angles(0, finalYaw, 0) * CFrame.Angles(math.rad(30), 0, 0)
+    else
+        hrp.CFrame = CFrame.new(pos) * CFrame.Angles(0, finalYaw, math.rad(rollDeg))
+    end
 
     ApplyPoseMode(char, mode, tick())
 end)
@@ -2647,50 +2851,65 @@ local function v93(p76)
         if getgenv().BhopEnabled then
             local canHop = not getgenv().BhopRequireSpace or UIS_Bhop:IsKeyDown(Enum.KeyCode.Space)
             local onGround = Humanoid.FloorMaterial ~= Enum.Material.Air
-            local moveDir = Humanoid.MoveDirection
+            local base = getgenv().BhopSpeed or 32
+            local cap = math.max(getgenv().BhopMaxSpeed or 65, base)
+            local bhopMode = getgenv().BhopMode or "Velocity"
+
+            if not onGround then
+                local accel = (getgenv().BhopAccel or 5) * dt * 6
+                currentBhopSpeed = math.clamp(currentBhopSpeed + accel, base, cap)
+            end
 
             if canHop then
                 if onGround and (tick() - lastBhopJump >= (getgenv().BhopGroundDelay or 0.02)) then
                     lastBhopJump = tick()
+                    Humanoid.UseJumpPower = true
                     Humanoid.JumpPower = getgenv().BhopJumpPower or 50
                     Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-                    currentBhopSpeed = math.max(currentBhopSpeed, getgenv().BhopSpeed or 32)
+                    -- сохраняем горизонтальный разгон, минимум = базовая скорость
+                    local vel = HumanoidRootPart.Velocity
+                    local flat = Vector3.new(vel.X, 0, vel.Z)
+                    local dir = flat.Magnitude > 0.5 and flat.Unit
+                        or (Humanoid.MoveDirection.Magnitude > 0.05 and Humanoid.MoveDirection.Unit)
+                        or HumanoidRootPart.CFrame.LookVector
+                    currentBhopSpeed = math.min(math.max(flat.Magnitude, base), cap)
+                    if bhopMode ~= "Legit" then
+                        HumanoidRootPart.Velocity = Vector3.new(dir.X * currentBhopSpeed, vel.Y, dir.Z * currentBhopSpeed)
+                    end
                 elseif not onGround then
-                    local accel = (getgenv().BhopAccel or 5) * dt * 4
-                    currentBhopSpeed = math.clamp(
-                        currentBhopSpeed + accel,
-                        getgenv().BhopSpeed or 32,
-                        getgenv().BhopMaxSpeed or 65
-                    )
-                end
+                    local moveDir = Humanoid.MoveDirection
+                    local camLook = workspace.CurrentCamera and workspace.CurrentCamera.CFrame.LookVector or Vector3.new()
+                    local flatCam = Vector3.new(camLook.X, 0, camLook.Z)
 
-                if moveDir.Magnitude > 0.05 then
-                    local mode = getgenv().BhopMode or "Velocity"
-                    local targetDir = moveDir.Unit
-
-                    if getgenv().BhopAutoStrafe and not onGround then
-                        local camLook = t1.value1.CurrentCamera.CFrame.LookVector
-                        local flatCam = Vector3.new(camLook.X, 0, camLook.Z)
-                        if flatCam.Magnitude > 0.01 then
-                            local lerpAlpha = math.clamp((getgenv().BhopStrafeTurnSpeed or 35) / 100, 0.05, 1)
-                            targetDir = targetDir:Lerp(targetDir, lerpAlpha).Unit
+                    -- авто-страф: крутим воздушную скорость к направлению камеры без потери скорости
+                    if getgenv().BhopAutoStrafe and flatCam.Magnitude > 0.01 then
+                        local vel = HumanoidRootPart.Velocity
+                        local flatVel = Vector3.new(vel.X, 0, vel.Z)
+                        if flatVel.Magnitude > 1 then
+                            local steer = math.clamp(dt * (getgenv().BhopStrafeTurnSpeed or 35) / 10, 0, 1)
+                            local turned = flatVel:Lerp(flatCam.Unit * flatVel.Magnitude, steer)
+                            HumanoidRootPart.Velocity = Vector3.new(turned.X, vel.Y, turned.Z)
+                        elseif moveDir.Magnitude > 0.05 and bhopMode == "Velocity" then
+                            HumanoidRootPart.Velocity = Vector3.new(moveDir.X * currentBhopSpeed, vel.Y, moveDir.Z * currentBhopSpeed)
+                        end
+                    elseif moveDir.Magnitude > 0.05 then
+                        local dir = moveDir.Unit
+                        if bhopMode == "Velocity" then
+                            HumanoidRootPart.Velocity = Vector3.new(dir.X * currentBhopSpeed, HumanoidRootPart.Velocity.Y, dir.Z * currentBhopSpeed)
+                        elseif bhopMode == "CFrame" then
+                            HumanoidRootPart.CFrame += dir * (currentBhopSpeed * dt)
                         end
                     end
 
-                    if mode == "Velocity" then
-                        HumanoidRootPart.Velocity = Vector3.new(
-                            targetDir.X * currentBhopSpeed,
-                            HumanoidRootPart.Velocity.Y,
-                            targetDir.Z * currentBhopSpeed
-                        )
-                    elseif mode == "CFrame" then
-                        HumanoidRootPart.CFrame = HumanoidRootPart.CFrame + (targetDir * (currentBhopSpeed * dt))
-                    elseif mode == "Legit" then
+                    if bhopMode == "Legit" then
                         Humanoid.WalkSpeed = math.clamp(currentBhopSpeed, 16, 36)
                     end
                 end
             else
-                currentBhopSpeed = getgenv().BhopSpeed or 32
+                if bhopMode == "Legit" and Humanoid.WalkSpeed ~= 16 then
+                    Humanoid.WalkSpeed = 16
+                end
+                currentBhopSpeed = base
             end
         end
 
@@ -3152,6 +3371,302 @@ v18:AddColorPicker({
         getgenv().BulletTrailColor = p
     end
 })
+
+
+-- ============================================================
+-- [FIRE RATE] зажал ЛКМ — стреляет с кастомным темпом через тот же
+-- FireWeapon-сигнал, что и авто-стрельба раги
+-- ============================================================
+do
+    local UIS_FR = game:GetService("UserInputService")
+
+    local secFR = v21:AddSection({ Position = "center", Name = "FIRE RATE" })
+    secFR:AddToggle({
+        Name = "Fire Rate Changer",
+        Flag = "FireRateEnabled",
+        Default = getgenv().FireRateEnabled,
+        Callback = function(p) getgenv().FireRateEnabled = p end
+    })
+    secFR:AddSlider({
+        Name = "Rate Multiplier",
+        Flag = "FireRateMult",
+        Min = 1, Max = 10,
+        Default = math.clamp(getgenv().FireRateMult, 1, 10),
+        Callback = function(p) getgenv().FireRateMult = p end
+    })
+
+    task.spawn(function()
+        while true do
+            local g = getgenv()
+            if g.FireRateEnabled and UIS_FR:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+                and not (g.RageBotEnabled and g.RageBotAutoFire) then
+                local interval = math.clamp(0.1 / math.max(g.FireRateMult or 2, 0.1), 0.02, 1)
+                SignalManager.Fire("FireWeapon", Enum.UserInputState.Begin)
+                task.wait(interval * 0.4)
+                SignalManager.Fire("FireWeapon", Enum.UserInputState.End)
+                task.wait(interval * 0.6)
+            else
+                task.wait(0.05)
+            end
+        end
+    end)
+end
+
+-- ============================================================
+-- [GOD MODE] клиентский: мгновенный отхил при уроне.
+-- если урон считает сервер — может убить, это best effort
+-- ============================================================
+do
+    local secGod = v21:AddSection({ Position = "center", Name = "GOD MODE" })
+    secGod:AddToggle({
+        Name = "God Mode (client)",
+        Flag = "GodModeEnabled",
+        Default = getgenv().GodModeEnabled,
+        Callback = function(p) getgenv().GodModeEnabled = p end
+    })
+    local function trackGod(char)
+        local hum = char:WaitForChild("Humanoid", 10)
+        if not hum then return end
+        hum:GetPropertyChangedSignal("Health"):Connect(function()
+            if getgenv().GodModeEnabled and hum.Health > 0 and hum.Health < hum.MaxHealth then
+                hum.Health = hum.MaxHealth
+            end
+        end)
+    end
+    if t1.value8.Character then task.spawn(trackGod, t1.value8.Character) end
+    t1.value8.CharacterAdded:Connect(trackGod)
+end
+
+-- ============================================================
+-- [EXTRA VISUALS] fullbright + кастомный прицел + fps счётчик
+-- ============================================================
+do
+    local LightingX = game:GetService("Lighting")
+    local savedLight = {
+        Brightness = LightingX.Brightness,
+        ClockTime = LightingX.ClockTime,
+        Ambient = LightingX.Ambient,
+        OutdoorAmbient = LightingX.OutdoorAmbient,
+        GlobalShadows = LightingX.GlobalShadows
+    }
+    v17:AddToggle({
+        Name = "Fullbright",
+        Flag = "Fullbright",
+        Default = false,
+        Callback = function(p)
+            if p then
+                LightingX.Brightness = 3
+                LightingX.ClockTime = 14
+                LightingX.Ambient = Color3.fromRGB(255, 255, 255)
+                LightingX.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+                LightingX.GlobalShadows = false
+                LightingX.FogEnd = 100000
+            else
+                LightingX.Brightness = savedLight.Brightness
+                LightingX.ClockTime = savedLight.ClockTime
+                LightingX.Ambient = savedLight.Ambient
+                LightingX.OutdoorAmbient = savedLight.OutdoorAmbient
+                LightingX.GlobalShadows = savedLight.GlobalShadows
+            end
+        end
+    })
+
+    local lines = {}
+    for _ = 1, 4 do
+        local ln = Drawing.new("Line")
+        ln.Visible = false
+        ln.Thickness = 1.5
+        ln.Color = Color3.fromRGB(0, 255, 120)
+        table.insert(lines, ln)
+    end
+    local chDot = Drawing.new("Circle")
+    chDot.Visible = false
+    chDot.Radius = 1
+    chDot.Filled = true
+    chDot.NumSides = 8
+    chDot.Color = Color3.fromRGB(0, 255, 120)
+
+    local secCH = v17:AddSection({ Position = "right", Name = "CROSSHAIR" })
+    secCH:AddToggle({
+        Name = "Custom Crosshair",
+        Flag = "CrosshairEnabled",
+        Default = getgenv().CrosshairEnabled,
+        Callback = function(p)
+            getgenv().CrosshairEnabled = p
+            if not p then
+                for _, ln in ipairs(lines) do ln.Visible = false end
+                chDot.Visible = false
+            end
+        end
+    })
+    secCH:AddSlider({
+        Name = "Length",
+        Flag = "CrosshairSize",
+        Min = 2, Max = 40,
+        Default = getgenv().CrosshairSize,
+        Callback = function(p) getgenv().CrosshairSize = p end
+    })
+    secCH:AddSlider({
+        Name = "Gap",
+        Flag = "CrosshairGap",
+        Min = 0, Max = 20,
+        Default = getgenv().CrosshairGap,
+        Callback = function(p) getgenv().CrosshairGap = p end
+    })
+    secCH:AddColorPicker({
+        Name = "Crosshair Color",
+        Flag = "CrosshairColor",
+        Default = Color3.fromRGB(0, 255, 120),
+        Callback = function(c)
+            for _, ln in ipairs(lines) do ln.Color = c end
+            chDot.Color = c
+        end
+    })
+
+    local chCam = workspace.CurrentCamera
+    RunService.RenderStepped:Connect(function()
+        if not (getgenv().CrosshairEnabled and chCam and chCam.Parent) then return end
+        local vp = chCam.ViewportSize
+        local cx, cy = vp.X / 2, vp.Y / 2
+        local len = getgenv().CrosshairSize or 12
+        local gap = getgenv().CrosshairGap or 4
+        local segs = {
+            { cx - gap - len, cy, cx - gap, cy },
+            { cx + gap, cy, cx + gap + len, cy },
+            { cx, cy - gap - len, cx, cy - gap },
+            { cx, cy + gap, cx, cy + gap + len }
+        }
+        for i, s in ipairs(segs) do
+            lines[i].From = Vector2.new(s[1], s[2])
+            lines[i].To = Vector2.new(s[3], s[4])
+            lines[i].Visible = true
+        end
+        chDot.Position = Vector2.new(cx, cy)
+        chDot.Visible = true
+    end)
+
+    local fpsText = Drawing.new("Text")
+    fpsText.Visible = false
+    fpsText.Size = 14
+    fpsText.Color = Color3.fromRGB(180, 180, 255)
+    fpsText.Outline = true
+    fpsText.Position = Vector2.new(8, 8)
+    fpsText.Text = "FPS: ..."
+    local secFps = v17:AddSection({ Position = "right", Name = "INFO" })
+    secFps:AddToggle({
+        Name = "FPS Counter",
+        Flag = "FpsCounter",
+        Default = false,
+        Callback = function(p) fpsText.Visible = p end
+    })
+    local fpsAcc, fpsFrames = 0, 0
+    RunService.RenderStepped:Connect(function(dt)
+        fpsFrames += 1
+        fpsAcc += dt
+        if fpsAcc >= 0.5 then
+            fpsText.Text = ("FPS: %d"):format(math.floor(fpsFrames / fpsAcc + 0.5))
+            fpsAcc, fpsFrames = 0, 0
+        end
+    end)
+end
+
+-- ============================================================
+-- [SKIN CHANGER] визуальные скины на оружии + Random
+-- ============================================================
+do
+    local skins = {
+        ["Redline"] = { Color = Color3.fromRGB(40, 40, 40), Material = Enum.Material.Metal, Reflectance = 0.1 },
+        ["Asiimov"] = { Color = Color3.fromRGB(245, 245, 240), Material = Enum.Material.SmoothPlastic, Reflectance = 0 },
+        ["Fade"] = { Color = Color3.fromRGB(255, 105, 180), Material = Enum.Material.Neon, Reflectance = 0 },
+        ["Case Hardened"] = { Color = Color3.fromRGB(90, 130, 255), Material = Enum.Material.Metal, Reflectance = 0.35 },
+        ["Gold"] = { Color = Color3.fromRGB(255, 200, 40), Material = Enum.Material.Metal, Reflectance = 0.6 },
+        ["Neon"] = { Color = Color3.fromRGB(0, 255, 140), Material = Enum.Material.Neon, Reflectance = 0 }
+    }
+    local skinKeys = { "Redline", "Asiimov", "Fade", "Case Hardened", "Gold", "Neon" }
+    local appliedSkins = {}
+
+    local function applySkin(tool)
+        if not getgenv().SkinEnabled then return end
+        local name = getgenv().SkinName or "Random"
+        if name == "Random" then
+            name = skinKeys[math.random(1, #skinKeys)]
+        end
+        local preset = skins[name]
+        if not preset then return end
+        for _, part in ipairs(tool:GetDescendants()) do
+            if (part:IsA("BasePart") or part:IsA("MeshPart")) and part.Name ~= "Charm"
+                and not part:FindFirstAncestor("Charm") then
+                if not appliedSkins[part] then
+                    appliedSkins[part] = {
+                        Color = part.Color,
+                        Material = part.Material,
+                        Reflectance = part.Reflectance,
+                        Transparency = part.Transparency
+                    }
+                end
+                part.Color = preset.Color
+                part.Material = preset.Material
+                part.Reflectance = preset.Reflectance or 0
+            end
+        end
+    end
+
+    local function restoreSkins()
+        for part, orig in pairs(appliedSkins) do
+            if part and part.Parent then
+                part.Color = orig.Color
+                part.Material = orig.Material
+                part.Reflectance = orig.Reflectance
+                part.Transparency = orig.Transparency
+            end
+        end
+        table.clear(appliedSkins)
+    end
+
+    local function watchTool(char)
+        char.ChildAdded:Connect(function(child)
+            if child:IsA("Tool") then
+                task.wait(0.1)
+                applySkin(child)
+            end
+        end)
+        char.ChildRemoved:Connect(function(child)
+            if child:IsA("Tool") then restoreSkins() end
+        end)
+        local cur = char:FindFirstChildOfClass("Tool")
+        if cur then applySkin(cur) end
+    end
+    if t1.value8.Character then watchTool(t1.value8.Character) end
+    t1.value8.CharacterAdded:Connect(watchTool)
+
+    local secSkin = v18:AddSection({ Position = "right", Name = "SKIN CHANGER" })
+    secSkin:AddToggle({
+        Name = "Enable",
+        Flag = "SkinEnabled",
+        Default = getgenv().SkinEnabled,
+        Callback = function(p)
+            getgenv().SkinEnabled = p
+            if p then
+                local t = t1.value8.Character and t1.value8.Character:FindFirstChildOfClass("Tool")
+                if t then applySkin(t) end
+            else
+                restoreSkins()
+            end
+        end
+    })
+    secSkin:AddDropdown({
+        Name = "Skin",
+        Flag = "SkinName",
+        Values = { "Random", "Redline", "Asiimov", "Fade", "Case Hardened", "Gold", "Neon" },
+        Default = getgenv().SkinName,
+        Callback = function(v)
+            getgenv().SkinName = v
+            restoreSkins()
+            local t = t1.value8.Character and t1.value8.Character:FindFirstChildOfClass("Tool")
+            if t then applySkin(t) end
+        end
+    })
+end
 
 -- ============================================================
 -- [CONFIG] SETTINGS tab
