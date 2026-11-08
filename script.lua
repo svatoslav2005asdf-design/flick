@@ -1,3 +1,4 @@
+
 local t1 = {
 	value1 = game:GetService("Workspace")
 }
@@ -3380,7 +3381,7 @@ v18:AddColorPicker({
 do
     local UIS_FR = game:GetService("UserInputService")
 
-    local secFR = v21:AddSection({ Position = "center", Name = "FIRE RATE" })
+    local secFR = t1.mMisc:AddSection({ Position = "center", Name = "FIRE RATE" })
     secFR:AddToggle({
         Name = "Fire Rate Changer",
         Flag = "FireRateEnabled",
@@ -3417,7 +3418,7 @@ end
 -- если урон считает сервер — может убить, это best effort
 -- ============================================================
 do
-    local secGod = v21:AddSection({ Position = "center", Name = "GOD MODE" })
+    local secGod = t1.mMisc:AddSection({ Position = "center", Name = "GOD MODE" })
     secGod:AddToggle({
         Name = "God Mode (client)",
         Flag = "GodModeEnabled",
@@ -3486,7 +3487,7 @@ do
     chDot.NumSides = 8
     chDot.Color = Color3.fromRGB(0, 255, 120)
 
-    local secCH = v17:AddSection({ Position = "right", Name = "CROSSHAIR" })
+    local secCH = t1.mVisuals:AddSection({ Position = "right", Name = "CROSSHAIR" })
     secCH:AddToggle({
         Name = "Custom Crosshair",
         Flag = "CrosshairEnabled",
@@ -3552,7 +3553,7 @@ do
     fpsText.Outline = true
     fpsText.Position = Vector2.new(8, 8)
     fpsText.Text = "FPS: ..."
-    local secFps = v17:AddSection({ Position = "right", Name = "INFO" })
+    local secFps = t1.mVisuals:AddSection({ Position = "right", Name = "INFO" })
     secFps:AddToggle({
         Name = "FPS Counter",
         Flag = "FpsCounter",
@@ -3639,7 +3640,7 @@ do
     if t1.value8.Character then watchTool(t1.value8.Character) end
     t1.value8.CharacterAdded:Connect(watchTool)
 
-    local secSkin = v18:AddSection({ Position = "right", Name = "SKIN CHANGER" })
+    local secSkin = t1.mVisuals:AddSection({ Position = "right", Name = "SKIN CHANGER" })
     secSkin:AddToggle({
         Name = "Enable",
         Flag = "SkinEnabled",
