@@ -180,20 +180,22 @@ do
     local HttpService = game:GetService("HttpService")
     local Cfg = {
         Folder = "LesxovTap",
-        Slots = { "default", "slot2", "slot3" },
+        Slots = {"default", "slot2", "slot3"},
         Slot = "default",
-        Autosave = true,
+        Autosave = false,
         ready = false,
         _last = nil,
         Keys = {
             "SilentAim", "SilentAimTarget", "SilentAimFOVEnabled", "SilentAimFOV",
             "RageBotEnabled", "RageBotHitbox", "RageBotAutoFire",
             "AttackIntervalEnabled", "AttackInterval", "AttackHold", "AttackJitter",
-            "PenetrationEnabled", "PenetrationMax",
-            "RageMagEnabled", "WallbangEnabled", "WallbangAutoFire", "WallbangFOV", "NoReloadEnabled",
+            "PenetrationEnabled", "PenetrationMax", "RageMagEnabled",
+            "WallbangEnabled", "FireRateEnabled", "FireRateMult",
             "GodModeEnabled", "CrosshairEnabled", "CrosshairSize", "CrosshairGap",
             "SkinEnabled", "SkinName", "SnowStyle",
-            "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll", "UndoDuration",
+            "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll",
+            "BulletTrailsEnabled", "BulletTrailModel", "BulletTrailLife",
+            "BulletTrailColor", "LesxovTheme"
         },
     }
 
@@ -232,15 +234,23 @@ do
     function Cfg.snapshot()
         local out, env = {}, getgenv()
         for _, k in ipairs(Cfg.Keys) do
-            if env[k] ~= nil then out[k] = env[k] end
+            if env[k] ~= nil then
+                local value = env[k]
+                if typeof(value) == "Color3" then
+                    out[k] = {__type = "Color3", r = value.R, g = value.G, b = value.B}
+                elseif type(value) == "number" or type(value) == "boolean" or type(value) == "string" then
+                    out[k] = value
+                end
+            end
         end
         return out
     end
 
     function Cfg.save(slot)
         local json = HttpService:JSONEncode(Cfg.snapshot())
-        wr((slot or Cfg.Slot) .. ".json", json)
-        Cfg._last = json
+        local ok = wr((slot or Cfg.Slot) .. ".json", json)
+        if ok then Cfg._last = json end
+        return ok
     end
 
     function Cfg.load(slot)
@@ -249,7 +259,11 @@ do
         local env = getgenv()
         for _, k in ipairs(Cfg.Keys) do
             local v = data[k]
-            if v ~= nil and type(v) == type(env[k]) then env[k] = v end
+            if type(v) == "table" and v.__type == "Color3" then
+                env[k] = Color3.new(v.r or 1, v.g or 1, v.b or 1)
+            elseif v ~= nil and (env[k] == nil or type(v) == type(env[k])) then
+                env[k] = v
+            end
         end
         Cfg._last = HttpService:JSONEncode(Cfg.snapshot())
         return true
@@ -357,6 +371,11 @@ getgenv().CrosshairGap = 4
 getgenv().SkinEnabled = false
 getgenv().SkinName = "Random"
 getgenv().SnowStyle = "Realistic"
+getgenv().BulletTrailsEnabled = false
+getgenv().BulletTrailModel = "Default"
+getgenv().BulletTrailLife = 15
+getgenv().BulletTrailColor = Color3.fromRGB(205, 50, 255)
+getgenv().LesxovTheme = "Purple"
 t1.Cfg.init()
 
 local cam = t1.value6.CurrentCamera
@@ -443,6 +462,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BulletHandler = require(ReplicatedStorage.ModuleScripts.GunModules:WaitForChild("BulletHandler"))
 local SignalManager = require(ReplicatedStorage:WaitForChild("SignalManager"))
 local oldFire = BulletHandler.Fire
+local fireTrailEffect
 
 -- ============================================================
 -- [SURFACE PENETRATION] core
@@ -582,6 +602,9 @@ BulletHandler.Fire = function(data)
     end
     
     t1.Pen.arm(data)
+    if getgenv().BulletTrailsEnabled and fireTrailEffect and data then
+        pcall(fireTrailEffect, data)
+    end
 
     return oldFire(data)
 end
@@ -3519,8 +3542,8 @@ v21:AddToggle({
     end
 })
 
-getgenv().BulletTrailsEnabled = false
-getgenv().BulletTrailColor = Color3.fromRGB(205, 50, 255)
+getgenv().BulletTrailsEnabled = getgenv().BulletTrailsEnabled or false
+getgenv().BulletTrailColor = getgenv().BulletTrailColor or Color3.fromRGB(205, 50, 255)
 
 local TrailsList = {}
 local TRAIL_MODELS = {
@@ -3574,7 +3597,7 @@ local function CreateBulletTrail(startPos, endPos, color)
     trailFrame += 1
 
     if model == "Thunder" then
-        local n = math.max(2, math.floor(len / 1.5))
+        local n = math.clamp(math.floor(len / 1.5), 2, 24)
         local prev = startPos
         for i = 1, n do
             local p = startPos:Lerp(endPos, i / n)
@@ -3659,26 +3682,22 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
-local bulletStorage = t1.value1:FindFirstChild("bulletStorage") or Instance.new("Folder", t1.value1)
-bulletStorage.Name = "bulletStorage"
-
-bulletStorage.ChildAdded:Connect(function(child)
-    if not getgenv().BulletTrailsEnabled then return end
-    if not child:IsA("BasePart") then return end
-    
-    local startPos = child.Position
-    local connection
-    
-    connection = RunService.RenderStepped:Connect(function()
-        if child and child.Parent then
-            local endPos = child.Position
-            CreateBulletTrail(startPos, endPos, getgenv().BulletTrailColor)
-            startPos = endPos
-        else
-            connection:Disconnect()
-        end
-    end)
-end)
+-- Game fires raycast-based bullets; physical bulletStorage parts are not reliable.
+fireTrailEffect = function(data)
+    local origin, direction = data.Origin, data.Direction
+    if typeof(origin) ~= "Vector3" or typeof(direction) ~= "Vector3" or direction.Magnitude < 0.001 then return end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = t1.value8.Character and {t1.value8.Character} or {}
+    local distance = 220
+    local hit = workspace:Raycast(origin, direction.Unit * distance, params)
+    local finish = hit and hit.Position or origin + direction.Unit * distance
+    -- clamp complexity on long-distance shots
+    if (finish-origin).Magnitude > 70 then
+        finish = origin + direction.Unit * 70
+    end
+    CreateBulletTrail(origin, finish, getgenv().BulletTrailColor)
+end
 
 v18:AddToggle({
     Name = "Bullet Trails",
@@ -4057,75 +4076,121 @@ do
 end
 
 -- ============================================================
--- [CONFIG] SETTINGS tab
--- PROFILE: which slot + autosave. ACTIONS: save / load / reset (tap = run).
--- slot switch, load and reset change values immediately; the menu widgets
--- show the new values after the next execute.
+-- [CONFIG + THEME] Explicit mobile-friendly buttons.
 -- ============================================================
 do
     local Cfg = t1.Cfg
-    local t0 = os.clock() -- widgets may fire their callback once on creation; stay quiet then
-    local function note(text)
-        if os.clock() - t0 < 3 then return end
-        v11:Notify({ Title = "CONFIG", Content = text, Icon = "check" })
-    end
+    local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+    local old = playerGui:FindFirstChild("LesxovSettingsPanel")
+    if old then old:Destroy() end
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "LesxovSettingsPanel"
+    gui.ResetOnSpawn = false
+    gui.Parent = playerGui
 
-    local profile = vSettings:AddSection({ Position = "left", Name = "CONFIG PROFILE" })
-    profile:AddDropdown({
-        Name = "Slot",
-        Flag = "CfgSlot",
-        Values = Cfg.Slots,
-        Default = Cfg.Slot,
-        Callback = function(p)
-            if p == Cfg.Slot then return end
-            Cfg.save()
-            Cfg.Slot = p
-            Cfg.saveMeta()
-            if Cfg.load(p) then
-                note("slot " .. p .. " loaded")
-            else
-                Cfg.save()
-                note("slot " .. p .. " is empty, current values saved into it")
+    local panel = Instance.new("Frame")
+    panel.Name = "Panel"
+    panel.Size = UDim2.fromOffset(290, 300)
+    panel.Position = UDim2.new(1, -300, 0.5, -150)
+    panel.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
+    panel.BorderSizePixel = 0
+    panel.Visible = false
+    panel.Parent = gui
+    Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 9)
+
+    local themeColors = {
+        Purple = Color3.fromRGB(175, 90, 255),
+        Blue = Color3.fromRGB(55, 145, 255),
+        Green = Color3.fromRGB(50, 210, 120),
+        Red = Color3.fromRGB(240, 70, 90),
+        Orange = Color3.fromRGB(255, 155, 45)
+    }
+    local function applyTheme(name)
+        if not themeColors[name] then return end
+        getgenv().LesxovTheme = name
+        panel.BackgroundColor3 = themeColors[name]:Lerp(Color3.fromRGB(15, 15, 19), 0.88)
+        for _, child in ipairs(panel:GetChildren()) do
+            if child:IsA("TextButton") and child.Name ~= "Close" then
+                child.BackgroundColor3 = themeColors[name]:Lerp(Color3.fromRGB(22,22,26), 0.65)
             end
         end
-    })
-    profile:AddToggle({
-        Name = "Autosave (every 2s on change)",
-        Flag = "CfgAutosave",
-        Default = Cfg.Autosave,
-        Callback = function(p)
-            Cfg.Autosave = p
-            Cfg.saveMeta()
+    end
+    local function button(name, title, x, y, w, h, callback)
+        local b = Instance.new("TextButton")
+        b.Name = name
+        b.Text = title
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 14
+        b.TextColor3 = Color3.new(1,1,1)
+        b.BackgroundColor3 = Color3.fromRGB(60,60,70)
+        b.BorderSizePixel = 0
+        b.Position = UDim2.fromOffset(x,y)
+        b.Size = UDim2.fromOffset(w,h)
+        b.Parent = panel
+        Instance.new("UICorner",b).CornerRadius = UDim.new(0,6)
+        b.MouseButton1Click:Connect(callback)
+        return b
+    end
+    local function label(text, y)
+        local l = Instance.new("TextLabel")
+        l.BackgroundTransparency = 1
+        l.TextColor3 = Color3.new(1,1,1)
+        l.Font = Enum.Font.GothamBold
+        l.TextSize = 13
+        l.Text = text
+        l.Position = UDim2.fromOffset(12,y)
+        l.Size = UDim2.fromOffset(265,22)
+        l.Parent = panel
+        return l
+    end
+    local function notify(msg)
+        pcall(function() v11:Notify({Title="Lesxov Tap",Content=msg,Icon="check"}) end)
+    end
+    label("CONFIGURATION", 9)
+    local slotButton
+    slotButton = button("Slot", "Slot: "..Cfg.Slot, 12, 39, 265, 34, function()
+        local i = table.find(Cfg.Slots, Cfg.Slot) or 1
+        Cfg.Slot = Cfg.Slots[i % #Cfg.Slots + 1]
+        Cfg.saveMeta()
+        slotButton.Text = "Slot: "..Cfg.Slot
+    end)
+    button("Save", "SAVE", 12, 82, 82, 38, function()
+        notify(Cfg.save() and "Saved: "..Cfg.Slot or "Save failed: check writefile")
+    end)
+    button("Load", "LOAD", 103, 82, 82, 38, function()
+        notify(Cfg.load() and "Loaded (reopen menu to refresh controls)" or "No saved file")
+        applyTheme(getgenv().LesxovTheme)
+    end)
+    button("Delete", "DELETE", 194, 82, 83, 38, function()
+        local path = Cfg.Folder.."/"..Cfg.Slot..".json"
+        if type(delfile) == "function" and type(isfile) == "function" then
+            local ok = pcall(function() if isfile(path) then delfile(path) end end)
+            notify(ok and "Deleted: "..Cfg.Slot or "Delete failed")
+        else
+            notify("Executor does not support delfile")
         end
-    })
-
-    local actions = vSettings:AddSection({ Position = "center", Name = "CONFIG ACTIONS" })
-    actions:AddToggle({
-        Name = "Save slot (tap)",
-        Flag = "CfgSaveNow",
-        Default = false,
-        Callback = function()
+    end)
+    label("THEME", 132)
+    local names = {"Purple","Blue","Green","Red","Orange"}
+    for i, name in ipairs(names) do
+        local x = 12 + ((i-1)%3)*91
+        local y = 160 + math.floor((i-1)/3)*40
+        button("Theme"..name, name, x,y,82,34,function()
+            applyTheme(name)
             Cfg.save()
-            note("saved to " .. Cfg.Slot)
-        end
-    })
-    actions:AddToggle({
-        Name = "Load slot (tap)",
-        Flag = "CfgLoadNow",
+        end)
+    end
+    local close = button("Close", "CLOSE", 12, 249, 265, 36, function()
+        panel.Visible = false
+    end)
+    applyTheme(getgenv().LesxovTheme)
+
+    -- The main menu has a simple entry to this independent panel.
+    local sec = vSettings:AddSection({Position="left",Name="CONFIG & THEMES"})
+    sec:AddToggle({
+        Name = "Open Config / Theme Panel",
+        Flag = "OpenLesxovSettings",
         Default = false,
-        Callback = function()
-            local ok = Cfg.load()
-            note(ok and ("loaded " .. Cfg.Slot) or ("no file for " .. Cfg.Slot))
-        end
-    })
-    actions:AddToggle({
-        Name = "Reset slot to defaults (tap)",
-        Flag = "CfgResetNow",
-        Default = false,
-        Callback = function()
-            if os.clock() - t0 < 3 then return end
-            Cfg.reset()
-            note("slot " .. Cfg.Slot .. " reset")
-        end
+        Callback = function(v) panel.Visible = v end
     })
 end
