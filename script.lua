@@ -141,6 +141,94 @@ t1.mMove = mkMenu("MOVEMENT", "move")
 t1.mMisc = mkMenu("MISC", "layers")
 local vSettings = mkMenu("SETTINGS", "cog")
 
+-- ESP: executor Drawing API, with per-feature color controls
+local espMenu = mkMenu("ESP", "scan")
+local espBox = espMenu:AddSection({Position = "left", Name = "BOX"})
+local espHealth = espMenu:AddSection({Position = "center", Name = "HEALTH"})
+local espExtra = espMenu:AddSection({Position = "right", Name = "EXTRA"})
+local esp = {Box = false, BoxColor = Color3.fromRGB(255,255,255),
+    Health = false, HealthColor = Color3.fromRGB(50,255,90),
+    Fill = false, FillColor = Color3.fromRGB(90,120,255),
+    Name = false, Distance = false}
+t1.ESP = esp
+local function option(section, label, key)
+    section:AddToggle({Name = label, Flag = "ESP" .. key, Default = false,
+        Callback = function(v) esp[key] = v end})
+end
+local function color(section, label, key)
+    section:AddColorPicker({Name = label, Flag = "ESP" .. key,
+        Default = esp[key], Callback = function(v) esp[key] = v end})
+end
+option(espBox, "Box", "Box")
+color(espBox, "Box Color", "BoxColor")
+option(espBox, "Fill Box", "Fill")
+color(espBox, "Fill Color", "FillColor")
+option(espHealth, "Health Bar", "Health")
+color(espHealth, "Health Color", "HealthColor")
+option(espExtra, "Name", "Name")
+option(espExtra, "Distance", "Distance")
+
+if type(Drawing) == "table" and type(Drawing.new) == "function" then
+    local visuals = {}
+    local function create()
+        local o = {box = Drawing.new("Square"), fill = Drawing.new("Square"),
+            hp = Drawing.new("Square"), name = Drawing.new("Text"), dist = Drawing.new("Text")}
+        o.box.Filled = false; o.box.Thickness = 1.5
+        o.fill.Filled = true; o.fill.Transparency = 0.25
+        o.hp.Filled = true
+        o.name.Center = true; o.name.Size = 13; o.name.Outline = true
+        o.dist.Center = true; o.dist.Size = 13; o.dist.Outline = true
+        return o
+    end
+    local function hide(o)
+        for _, d in pairs(o) do d.Visible = false end
+    end
+    RunService.RenderStepped:Connect(function()
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+        local alive = {}
+        for _, player in ipairs(game.Players:GetPlayers()) do
+            if player ~= game.Players.LocalPlayer then
+                alive[player] = true
+                local o = visuals[player]
+                if not o then o = create(); visuals[player] = o end
+                hide(o)
+                local char = player.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                if hum and hum.Health > 0 and root then
+                    local top, topVisible = camera:WorldToViewportPoint(root.Position + Vector3.new(0, 3.2, 0))
+                    local bottom, bottomVisible = camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
+                    if topVisible and bottomVisible and top.Z > 0 then
+                        local h = math.abs(bottom.Y - top.Y)
+                        local w = h * .48
+                        local x, y = top.X - w / 2, top.Y
+                        o.fill.Position = Vector2.new(x,y); o.fill.Size = Vector2.new(w,h)
+                        o.fill.Color = esp.FillColor; o.fill.Visible = esp.Fill
+                        o.box.Position = Vector2.new(x,y); o.box.Size = Vector2.new(w,h)
+                        o.box.Color = esp.BoxColor; o.box.Visible = esp.Box
+                        local fraction = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                        o.hp.Position = Vector2.new(x - 6, y + h * (1 - fraction))
+                        o.hp.Size = Vector2.new(3, h * fraction)
+                        o.hp.Color = esp.HealthColor; o.hp.Visible = esp.Health
+                        o.name.Position = Vector2.new(top.X, y - 16)
+                        o.name.Text = player.DisplayName; o.name.Visible = esp.Name
+                        o.dist.Position = Vector2.new(top.X, y + h + 2)
+                        o.dist.Text = string.format("%.0f studs", (camera.CFrame.Position-root.Position).Magnitude)
+                        o.dist.Visible = esp.Distance
+                    end
+                end
+            end
+        end
+        for player, o in pairs(visuals) do
+            if not alive[player] then
+                for _, d in pairs(o) do d:Remove() end
+                visuals[player] = nil
+            end
+        end
+    end)
+end
+
 local v16 = v15:AddSection({
 	Position = "left",
 	Name = "SILENT AIM"
@@ -579,7 +667,7 @@ BulletHandler.Fire = function(data)
         data.Misc.CamCFrame = CFrame.new(data.Misc.CamCFrame.Position, target.Position)
     end
     
-    t1.Pen.arm(data)
+    -- Client-side CanQuery changes cannot force server-authoritative penetration.
 
     return oldFire(data)
 end
@@ -820,7 +908,7 @@ fovCircleFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 fovCircleFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 fovCircleFrame.BackgroundTransparency = 1
 fovCircleFrame.Parent = fovScreenGui
-fovCircleFrame.Visible = getgenv().SilentAimFOVEnabled and getgenv().SilentAim
+fovCircleFrame.Visible = getgenv().SilentAimFOVEnabled
 
 local uiCorner = Instance.new("UICorner")
 uiCorner.CornerRadius = UDim.new(1, 0)
@@ -845,8 +933,12 @@ local rotationSpeed = 0.3
 
 local function updateFOVCircle()
     local radius = getgenv().SilentAimFOV or 50
-    fovCircleFrame.Size = UDim2.new(0, radius * 2, 0, radius * 2)
-    fovCircleFrame.Visible = getgenv().SilentAimFOVEnabled and getgenv().SilentAim
+    local camera = workspace.CurrentCamera
+    local half = math.rad(math.clamp(radius, 1, 89))
+    local cameraHalf = math.rad(camera.FieldOfView * 0.5)
+    local px = math.tan(half) / math.tan(cameraHalf) * camera.ViewportSize.Y * 0.5
+    fovCircleFrame.Size = UDim2.fromOffset(px * 2, px * 2)
+    fovCircleFrame.Visible = getgenv().SilentAimFOVEnabled
 end
 
 RunService.RenderStepped:Connect(function()
@@ -2317,166 +2409,49 @@ end
 
 local function ApplyPoseMode(char, mode, tickVal)
     if not char then return end
-    local torso = char:FindFirstChild("Torso")
-    local upperTorso = char:FindFirstChild("UpperTorso")
-    local lowerTorso = char:FindFirstChild("LowerTorso")
-
-    if mode ~= "Jitler" and mode ~= "Yitler" and mode ~= "Back" and mode ~= "Undo Back" then
-        for motor, origC0 in pairs(OriginalJointsCache) do
-            if motor and motor.Parent then
-                motor.C0 = origC0
-            end
-        end
-        return
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local airborne = hum and hum.FloorMaterial == Enum.Material.Air
+    local function joint(part, name)
+        local p = char:FindFirstChild(part)
+        local m = p and p:FindFirstChild(name)
+        if m and m:IsA("Motor6D") then SaveOriginalJoint(m) end
+        return m
     end
-
-    local jitterOsc = math.sin(tickVal * 35) * math.rad(18)
-
-    if torso then
-        -- R6 персонаж
-        local neck = torso:FindFirstChild("Neck")
-        local rShoulder = torso:FindFirstChild("Right Shoulder")
-        local lShoulder = torso:FindFirstChild("Left Shoulder")
-        local rHip = torso:FindFirstChild("Right Hip")
-        local lHip = torso:FindFirstChild("Left Hip")
-
-        for _, m in ipairs({neck, rShoulder, lShoulder, rHip, lHip}) do
-            SaveOriginalJoint(m)
+    local function set(m, transform)
+        if m and OriginalJointsCache[m] then
+            m.C0 = OriginalJointsCache[m] * transform
         end
-
-        if mode == "Jitler" then
-            -- Руки подняты вверх + голова запрокинута вверх/крутится
-            if neck and OriginalJointsCache[neck] then
-                neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(75) + jitterOsc, 0, math.sin(tickVal * 25) * math.rad(35))
-            end
-            if rShoulder and OriginalJointsCache[rShoulder] then
-                rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(0, 0, math.rad(165) + jitterOsc)
-            end
-            if lShoulder and OriginalJointsCache[lShoulder] then
-                lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(0, 0, -math.rad(165) - jitterOsc)
-            end
-            if rHip and OriginalJointsCache[rHip] then
-                rHip.C0 = OriginalJointsCache[rHip]
-            end
-            if lHip and OriginalJointsCache[lHip] then
-                lHip.C0 = OriginalJointsCache[lHip]
-            end
-        elseif mode == "Yitler" then
-            -- По типу Jitler, но ноги сгибаются в коленях/бедрах (присед в воздухе/спине) + руки вверх
-            if neck and OriginalJointsCache[neck] then
-                neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(70) + jitterOsc, 0, math.cos(tickVal * 30) * math.rad(40))
-            end
-            if rShoulder and OriginalJointsCache[rShoulder] then
-                rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(0, 0, math.rad(160) + jitterOsc)
-            end
-            if lShoulder and OriginalJointsCache[lShoulder] then
-                lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(0, 0, -math.rad(160) - jitterOsc)
-            end
-            if rHip and OriginalJointsCache[rHip] then
-                rHip.C0 = OriginalJointsCache[rHip] * CFrame.new(0, 0.45, -0.35) * CFrame.Angles(-math.rad(55), 0, -math.rad(85) + jitterOsc * 0.5)
-            end
-            if lHip and OriginalJointsCache[lHip] then
-                lHip.C0 = OriginalJointsCache[lHip] * CFrame.new(0, 0.45, -0.35) * CFrame.Angles(-math.rad(55), 0, math.rad(85) - jitterOsc * 0.5)
-            end
-
-            if mode == "Back" or mode == "Undo Back" then
-                local bend = (mode == "Undo Back") and 95 or 50
-                if neck and OriginalJointsCache[neck] then
-                    neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(bend * 0.4), 0, 0)
-                end
-                if rShoulder and OriginalJointsCache[rShoulder] then
-                    rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(-math.rad(bend), 0, math.rad(10))
-                end
-                if lShoulder and OriginalJointsCache[lShoulder] then
-                    lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(-math.rad(bend), 0, -math.rad(10))
-                end
-                if rHip and OriginalJointsCache[rHip] then
-                    rHip.C0 = OriginalJointsCache[rHip] * CFrame.Angles(math.rad(bend * 0.5), 0, math.rad(5))
-                end
-                if lHip and OriginalJointsCache[lHip] then
-                    lHip.C0 = OriginalJointsCache[lHip] * CFrame.Angles(math.rad(bend * 0.5), 0, -math.rad(5))
-                end
-            end
+    end
+    local r6 = char:FindFirstChild("Torso") ~= nil
+    local neck = r6 and joint("Torso", "Neck") or joint("UpperTorso", "Neck")
+    local rs = r6 and joint("Torso", "Right Shoulder") or joint("RightUpperArm", "RightShoulder")
+    local ls = r6 and joint("Torso", "Left Shoulder") or joint("LeftUpperArm", "LeftShoulder")
+    local rh = r6 and joint("Torso", "Right Hip") or joint("RightUpperLeg", "RightHip")
+    local lh = r6 and joint("Torso", "Left Hip") or joint("LeftUpperLeg", "LeftHip")
+    local rk = not r6 and joint("RightLowerLeg", "RightKnee")
+    local lk = not r6 and joint("LeftLowerLeg", "LeftKnee")
+    local re = not r6 and joint("RightLowerArm", "RightElbow")
+    local le = not r6 and joint("LeftLowerArm", "LeftElbow")
+    for _, m in ipairs({neck, rs, ls, rh, lh, rk, lk, re, le}) do set(m, CFrame.new()) end
+    if mode == "Jitler" or mode == "Yitler" then
+        set(rs, CFrame.Angles(r6 and 0 or math.rad(165), 0, r6 and math.rad(165) or math.rad(12)))
+        set(ls, CFrame.Angles(r6 and 0 or math.rad(165), 0, r6 and -math.rad(165) or -math.rad(12)))
+        set(neck, CFrame.Angles(r6 and -math.rad(25) or math.rad(25), 0, 0))
+        if mode == "Yitler" and airborne then
+            set(rh, CFrame.Angles(r6 and -math.rad(55) or math.rad(65), 0, 0))
+            set(lh, CFrame.Angles(r6 and -math.rad(55) or math.rad(65), 0, 0))
+            set(rk, CFrame.Angles(-math.rad(105), 0, 0))
+            set(lk, CFrame.Angles(-math.rad(105), 0, 0))
         end
-    elseif upperTorso and lowerTorso then
-        -- R15 персонаж
-        local neck = char:FindFirstChild("Head") and char.Head:FindFirstChild("Neck") or upperTorso:FindFirstChild("Neck")
-        local rShoulder = char:FindFirstChild("RightUpperArm") and char.RightUpperArm:FindFirstChild("RightShoulder")
-        local lShoulder = char:FindFirstChild("LeftUpperArm") and char.LeftUpperArm:FindFirstChild("LeftShoulder")
-        local rElbow = char:FindFirstChild("RightLowerArm") and char.RightLowerArm:FindFirstChild("RightElbow")
-        local lElbow = char:FindFirstChild("LeftLowerArm") and char.LeftLowerArm:FindFirstChild("LeftElbow")
-        local rHip = char:FindFirstChild("RightUpperLeg") and char.RightUpperLeg:FindFirstChild("RightHip")
-        local lHip = char:FindFirstChild("LeftUpperLeg") and char.LeftUpperLeg:FindFirstChild("LeftHip")
-        local rKnee = char:FindFirstChild("RightLowerLeg") and char.RightLowerLeg:FindFirstChild("RightKnee")
-        local lKnee = char:FindFirstChild("LeftLowerLeg") and char.LeftLowerLeg:FindFirstChild("LeftKnee")
-
-        for _, m in ipairs({neck, rShoulder, lShoulder, rElbow, lElbow, rHip, lHip, rKnee, lKnee}) do
-            SaveOriginalJoint(m)
-        end
-
-        if mode == "Jitler" then
-            if neck and OriginalJointsCache[neck] then
-                neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(math.rad(75) + jitterOsc, math.sin(tickVal * 25) * math.rad(35), 0)
-            end
-            if rShoulder and OriginalJointsCache[rShoulder] then
-                rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(math.rad(170) + jitterOsc, 0, math.rad(15))
-            end
-            if lShoulder and OriginalJointsCache[lShoulder] then
-                lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(math.rad(170) - jitterOsc, 0, -math.rad(15))
-            end
-            if rHip and OriginalJointsCache[rHip] then rHip.C0 = OriginalJointsCache[rHip] end
-            if lHip and OriginalJointsCache[lHip] then lHip.C0 = OriginalJointsCache[lHip] end
-            if rKnee and OriginalJointsCache[rKnee] then rKnee.C0 = OriginalJointsCache[rKnee] end
-            if lKnee and OriginalJointsCache[lKnee] then lKnee.C0 = OriginalJointsCache[lKnee] end
-        elseif mode == "Yitler" then
-            if neck and OriginalJointsCache[neck] then
-                neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(math.rad(75) + jitterOsc, math.cos(tickVal * 30) * math.rad(40), 0)
-            end
-            if rShoulder and OriginalJointsCache[rShoulder] then
-                rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(math.rad(165) + jitterOsc, 0, math.rad(20))
-            end
-            if lShoulder and OriginalJointsCache[lShoulder] then
-                lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(math.rad(165) - jitterOsc, 0, -math.rad(20))
-            end
-            -- Сгибаем ноги в бедрах и коленях
-            if rHip and OriginalJointsCache[rHip] then
-                rHip.C0 = OriginalJointsCache[rHip] * CFrame.Angles(math.rad(65) + jitterOsc * 0.4, 0, math.rad(10))
-            end
-            if lHip and OriginalJointsCache[lHip] then
-                lHip.C0 = OriginalJointsCache[lHip] * CFrame.Angles(math.rad(65) - jitterOsc * 0.4, 0, -math.rad(10))
-            end
-            if rKnee and OriginalJointsCache[rKnee] then
-                rKnee.C0 = OriginalJointsCache[rKnee] * CFrame.Angles(-math.rad(110) + jitterOsc * 0.5, 0, 0)
-            end
-            if lKnee and OriginalJointsCache[lKnee] then
-                lKnee.C0 = OriginalJointsCache[lKnee] * CFrame.Angles(-math.rad(110) - jitterOsc * 0.5, 0, 0)
-            end
-
-            if mode == "Back" or mode == "Undo Back" then
-                local bend = (mode == "Undo Back") and 95 or 50
-                if neck and OriginalJointsCache[neck] then
-                    neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(bend * 0.4), 0, 0)
-                end
-                if rShoulder and OriginalJointsCache[rShoulder] then
-                    rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(-math.rad(bend), 0, math.rad(10))
-                end
-                if lShoulder and OriginalJointsCache[lShoulder] then
-                    lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(-math.rad(bend), 0, -math.rad(10))
-                end
-                if rHip and OriginalJointsCache[rHip] then
-                    rHip.C0 = OriginalJointsCache[rHip] * CFrame.Angles(math.rad(bend * 0.5), 0, math.rad(5))
-                end
-                if lHip and OriginalJointsCache[lHip] then
-                    lHip.C0 = OriginalJointsCache[lHip] * CFrame.Angles(math.rad(bend * 0.5), 0, -math.rad(5))
-                end
-                if rKnee and OriginalJointsCache[rKnee] then
-                    rKnee.C0 = OriginalJointsCache[rKnee] * CFrame.Angles(math.rad(bend * 0.4), 0, 0)
-                end
-                if lKnee and OriginalJointsCache[lKnee] then
-                    lKnee.C0 = OriginalJointsCache[lKnee] * CFrame.Angles(math.rad(bend * 0.4), 0, 0)
-                end
-            end
-        end
+    elseif mode == "Back" or mode == "Undo Back" then
+        local bend = mode == "Undo Back" and 85 or 45
+        set(neck, CFrame.Angles(-math.rad(bend * .3), 0, 0))
+        set(rs, CFrame.Angles(-math.rad(bend), 0, math.rad(10)))
+        set(ls, CFrame.Angles(-math.rad(bend), 0, -math.rad(10)))
+        set(rh, CFrame.Angles(math.rad(bend * .4), 0, 0))
+        set(lh, CFrame.Angles(math.rad(bend * .4), 0, 0))
+        set(rk, CFrame.Angles(math.rad(bend * .3), 0, 0))
+        set(lk, CFrame.Angles(math.rad(bend * .3), 0, 0))
     end
 end
 
@@ -2570,6 +2545,8 @@ end
 
 local currentSpinYaw = 0
 local jitterFlip = false
+local poseUntil = 0
+local lastPoseMode = nil
 
 RunService5.RenderStepped:Connect(function(dt)
     if not getgenv().SpinEnabled then return end
@@ -2579,8 +2556,18 @@ RunService5.RenderStepped:Connect(function(dt)
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return end
 
-    hum.AutoRotate = false
     local spinMode0 = getgenv().SpinMode
+    if spinMode0 ~= lastPoseMode then
+        lastPoseMode = spinMode0
+        poseUntil = tick() + 1
+    end
+    if spinMode0 == "Undo" or spinMode0 == "Back" or spinMode0 == "Undo Back" then
+        if tick() >= poseUntil then
+            RestoreCharacterJoints(char)
+            return
+        end
+    end
+    hum.AutoRotate = false
     if spinMode0 == "Back" or spinMode0 == "Undo Back" then
         -- разворот тела в сторону последнего убитого
         if LastDeathPos then
@@ -2589,15 +2576,7 @@ RunService5.RenderStepped:Connect(function(dt)
                 hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + flat)
             end
         end
-        if spinMode0 == "Undo Back" then
-            ApplyPoseMode(char, "Undo Back", tick())
-        else
-            for motor, origC0 in pairs(OriginalJointsCache) do
-                if motor and motor.Parent then
-                    motor.C0 = origC0
-                end
-            end
-        end
+        ApplyPoseMode(char, spinMode0, tick())
         return
     end
     local mode = getgenv().SpinMode or "Basic Spin"
@@ -2605,6 +2584,10 @@ RunService5.RenderStepped:Connect(function(dt)
     local jitterDeg = getgenv().SpinJitterAngle or 65
     local rollDeg = getgenv().SpinDesyncRoll or 0
 
+    if mode == "Jitler" or mode == "Yitler" then
+        ApplyPoseMode(char, mode, tick())
+        return
+    end
     currentSpinYaw = (currentSpinYaw + speed * dt * 25) % 360
     jitterFlip = not jitterFlip
 
