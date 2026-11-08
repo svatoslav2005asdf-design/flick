@@ -189,7 +189,7 @@ do
             "RageBotEnabled", "RageBotHitbox", "RageBotAutoFire",
             "AttackIntervalEnabled", "AttackInterval", "AttackHold", "AttackJitter",
             "PenetrationEnabled", "PenetrationMax",
-            "RageMagEnabled", "WallbangEnabled", "FireRateEnabled", "FireRateMult",
+            "RageMagEnabled", "WallbangEnabled", "WallbangAutoFire", "WallbangFOV", "NoReloadEnabled",
             "GodModeEnabled", "CrosshairEnabled", "CrosshairSize", "CrosshairGap",
             "SkinEnabled", "SkinName", "SnowStyle",
             "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll",
@@ -345,8 +345,9 @@ getgenv().PenetrationEnabled = false
 getgenv().PenetrationMax = 3     -- surfaces a shot may pass through
 getgenv().RageMagEnabled = false
 getgenv().WallbangEnabled = false
-getgenv().FireRateEnabled = false
-getgenv().FireRateMult = 2
+getgenv().WallbangAutoFire = false
+getgenv().WallbangFOV = 30
+getgenv().NoReloadEnabled = false
 getgenv().GodModeEnabled = false
 getgenv().CrosshairEnabled = false
 getgenv().CrosshairSize = 12
@@ -402,6 +403,38 @@ function getRageBotTarget()
     end
 
     return closest
+end
+
+-- wallbang FOV target: closest-to-crosshair player inside WallbangFOV (deg), walls ignored
+function getWallbangTarget()
+    if not getgenv().WallbangEnabled then return nil end
+    local c = t1.value6.CurrentCamera
+    local fov = getgenv().WallbangFOV or 30
+    local hitbox = getgenv().RageBotHitbox or "Head"
+    local best, bestAng = nil, math.huge
+    for _, player in ipairs(t1.value5:GetPlayers()) do
+        local char = player.Character
+        local hum = char and char:FindFirstChild("Humanoid")
+        if player ~= t1.value8 and hum and hum.Health > 0 then
+            local part
+            if hitbox == "All" then
+                for _, n in ipairs({"Head", "UpperTorso", "Torso", "HumanoidRootPart"}) do
+                    part = char:FindFirstChild(n)
+                    if part then break end
+                end
+            else
+                part = char:FindFirstChild(hitbox) or char:FindFirstChild("Head")
+            end
+            if part then
+                local dir = (part.Position - c.CFrame.Position).Unit
+                local ang = math.deg(math.acos(math.clamp(c.CFrame.LookVector:Dot(dir), -1, 1)))
+                if ang <= fov and ang < bestAng then
+                    bestAng, best = ang, part
+                end
+            end
+        end
+    end
+    return best
 end
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -534,6 +567,13 @@ BulletHandler.Fire = function(data)
         end
     end
     
+    if not shouldChange and getgenv().WallbangEnabled then
+        target = getWallbangTarget()
+        if target then
+            shouldChange = true
+        end
+    end
+
     if shouldChange and target and data and data.Origin and data.Misc then
         data.Direction = (target.Position - data.Origin).Unit
         data.Misc.CamCFrame = CFrame.new(data.Misc.CamCFrame.Position, target.Position)
@@ -630,6 +670,29 @@ do
     })
 end
 
+-- ============================================================
+-- [WALLBANG AUTO FIRE] цель зашла в WallbangFOV -> стреляет сам
+-- ============================================================
+task.spawn(function()
+    while true do
+        local g = getgenv()
+        if g.WallbangEnabled and g.WallbangAutoFire
+            and not (g.RageBotEnabled and g.RageBotAutoFire) and getWallbangTarget() then
+            local interval, hold = 0.1, 0.05
+            if g.AttackIntervalEnabled then
+                interval = g.AttackInterval / 1000
+                hold = math.min(g.AttackHold / 1000, interval)
+            end
+            SignalManager.Fire("FireWeapon", Enum.UserInputState.Begin)
+            task.wait(hold)
+            SignalManager.Fire("FireWeapon", Enum.UserInputState.End)
+            task.wait(math.max(interval - hold, 0.01))
+        else
+            task.wait(0.05)
+        end
+    end
+end)
+
 v22:AddToggle({
     Name = "Enable",
     Flag = "RageBot_Enable",
@@ -663,6 +726,26 @@ v22:AddToggle({
     Default = getgenv().WallbangEnabled,
     Callback = function(p)
         getgenv().WallbangEnabled = p
+    end
+})
+
+v22:AddToggle({
+    Name = "Wallbang Auto Fire (in FOV)",
+    Flag = "WallbangAutoFire",
+    Default = getgenv().WallbangAutoFire,
+    Callback = function(p)
+        getgenv().WallbangAutoFire = p
+    end
+})
+
+v22:AddSlider({
+    Name = "Wallbang FOV",
+    Flag = "WallbangFOV",
+    Min = 1,
+    Max = 180,
+    Default = math.clamp(getgenv().WallbangFOV, 1, 180),
+    Callback = function(p)
+        getgenv().WallbangFOV = p
     end
 })
 
@@ -1720,7 +1803,6 @@ local function v69(p57)
     drawing3.Outline = true
     drawing3.OutlineColor = Color3.new(0, 0, 0)
     t1.value75[p57] = drawing3
-end
     local drawing4 = Drawing.new("Text")
 
     drawing4.Visible = false
@@ -1730,6 +1812,7 @@ end
     drawing4.Outline = true
     drawing4.OutlineColor = Color3.new(0, 0, 0)
     t1.value75b[p57] = drawing4
+end
 local GetPlayers = Players2.GetPlayers
 Players2.PlayerRemoving:Connect(function(player)
     if t1.value73[player] then
@@ -3385,39 +3468,74 @@ v18:AddColorPicker({
 
 
 -- ============================================================
--- [FIRE RATE] зажал ЛКМ — стреляет с кастомным темпом через тот же
--- FireWeapon-сигнал, что и авто-стрельба раги
+-- [NO RELOAD] держит патроны на максимуме (best effort)
+-- ищет Int/NumberValue и атрибуты с ammo/mag/clip/bullet/round в оружии,
+-- на персонаже, в Backpack и на игроке. если счётчик патронов лежит в
+-- памяти модуля, а не в инстансах — в консоли будет [NoReload] 0 tracked
 -- ============================================================
 do
-    local UIS_FR = game:GetService("UserInputService")
+    local pats = { "ammo", "mag", "clip", "bullet", "round" }
+    local function isAmmo(n)
+        n = n:lower()
+        for _, w in ipairs(pats) do
+            if n:find(w, 1, true) then return true end
+        end
+        return false
+    end
 
-    local secFR = t1.mMisc:AddSection({ Position = "center", Name = "FIRE RATE" })
-    secFR:AddToggle({
-        Name = "Fire Rate Changer",
-        Flag = "FireRateEnabled",
-        Default = getgenv().FireRateEnabled,
-        Callback = function(p) getgenv().FireRateEnabled = p end
-    })
-    secFR:AddSlider({
-        Name = "Rate Multiplier",
-        Flag = "FireRateMult",
-        Min = 1, Max = 10,
-        Default = math.clamp(getgenv().FireRateMult, 1, 10),
-        Callback = function(p) getgenv().FireRateMult = p end
+    local maxVal = setmetatable({}, { __mode = "k" })
+    local maxAttr = setmetatable({}, { __mode = "k" })
+    local tracked = 0
+
+    local function keep(inst)
+        if (inst:IsA("IntValue") or inst:IsA("NumberValue")) and isAmmo(inst.Name) then
+            local m = maxVal[inst]
+            if not m then tracked += 1 end
+            if not m or inst.Value > m then m = inst.Value end
+            maxVal[inst] = m
+            if inst.Value < m then inst.Value = m end
+        end
+        local am = maxAttr[inst]
+        for name, v in pairs(inst:GetAttributes()) do
+            if type(v) == "number" and isAmmo(name) then
+                if not am then am = {}; maxAttr[inst] = am end
+                if not am[name] then tracked += 1 end
+                if not am[name] or v > am[name] then am[name] = v end
+                if v < am[name] then inst:SetAttribute(name, am[name]) end
+            end
+        end
+    end
+
+    local function sweep(root)
+        if not root then return end
+        keep(root)
+        for _, d in ipairs(root:GetDescendants()) do keep(d) end
+    end
+
+    local secNR = t1.mMisc:AddSection({ Position = "center", Name = "NO RELOAD" })
+    secNR:AddToggle({
+        Name = "No Reload (infinite ammo)",
+        Flag = "NoReloadEnabled",
+        Default = getgenv().NoReloadEnabled,
+        Callback = function(p)
+            getgenv().NoReloadEnabled = p
+            if p then
+                task.delay(1, function()
+                    print("[NoReload] " .. tracked .. " tracked")
+                end)
+            end
+        end
     })
 
     task.spawn(function()
-        while true do
-            local g = getgenv()
-            if g.FireRateEnabled and UIS_FR:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
-                and not (g.RageBotEnabled and g.RageBotAutoFire) then
-                local interval = math.clamp(0.1 / math.max(g.FireRateMult or 2, 0.1), 0.02, 1)
-                SignalManager.Fire("FireWeapon", Enum.UserInputState.Begin)
-                task.wait(interval * 0.4)
-                SignalManager.Fire("FireWeapon", Enum.UserInputState.End)
-                task.wait(interval * 0.6)
-            else
-                task.wait(0.05)
+        while task.wait(0.05) do
+            if getgenv().NoReloadEnabled then
+                local lp = t1.value8
+                pcall(function()
+                    sweep(lp.Character)
+                    sweep(lp:FindFirstChildOfClass("Backpack"))
+                    keep(lp)
+                end)
             end
         end
     end)
