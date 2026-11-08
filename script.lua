@@ -3568,77 +3568,164 @@ v21:AddToggle({
     end
 })
 
-getgenv().BulletTrailsEnabled = false
-getgenv().BulletTrailColor = Color3.fromRGB(205, 50, 255)
+getgenv().BulletTrailsEnabled = getgenv().BulletTrailsEnabled or false
+getgenv().BulletTrailColor = getgenv().BulletTrailColor or Color3.fromRGB(205, 50, 255)
+getgenv().BulletTrailStyle = getgenv().BulletTrailStyle or "Classic"
 
-local TrailsList = {}
+local TrailFolder = Instance.new("Folder")
+TrailFolder.Name = "LesxovBulletEffects"
+TrailFolder.Parent = workspace
+local TrailPieces = {}
+local MAX_TRAIL_PIECES = 350
 
-local function CreateBulletTrail(startPos, endPos, color)
+local function trailPiece(a, b, color, width, lifetime, shape)
+    local length = (b - a).Magnitude
+    if length < 0.025 then return end
     local part = Instance.new("Part")
+    part.Name = "BulletTrailFX"
     part.Anchored = true
     part.CanCollide = false
+    part.CanTouch = false
+    part.CanQuery = false
+    part.CastShadow = false
     part.Material = Enum.Material.Neon
     part.Color = color
-    part.Size = Vector3.new(0.06, 0.06, (startPos - endPos).Magnitude)
-    part.CFrame = CFrame.new(startPos, endPos) * CFrame.new(0, 0, -part.Size.Z / 2)
-    part.Transparency = 0
-    part.Parent = t1.value1
-    
-    table.insert(TrailsList, {Part = part, Life = 1.5})
+    part.Shape = shape or Enum.PartType.Block
+    part.Size = Vector3.new(width, width, length)
+    part.CFrame = CFrame.lookAt((a + b) / 2, b)
+    part.Parent = TrailFolder
+    table.insert(TrailPieces, {Part = part, Life = lifetime, MaxLife = lifetime})
+    while #TrailPieces > MAX_TRAIL_PIECES do
+        local old = table.remove(TrailPieces, 1)
+        if old.Part then old.Part:Destroy() end
+    end
 end
 
-RunService.RenderStepped:Connect(function()
-    for i = #TrailsList, 1, -1 do
-        local t = TrailsList[i]
-        t.Life = t.Life - 0.016
-        
-        if t.Life <= 0 then
-            pcall(function()
-                t.Part:Destroy()
-            end)
-            table.remove(TrailsList, i)
+local function CreateBulletTrail(a, b, color)
+    local diff = b - a
+    local dist = diff.Magnitude
+    if dist < 0.12 then return end
+    local direction = diff.Unit
+    local style = getgenv().BulletTrailStyle or "Classic"
+    if style == "Thunder" then
+        local side = direction:Cross(Vector3.yAxis)
+        if side.Magnitude < 0.1 then side = direction:Cross(Vector3.xAxis) end
+        side = side.Unit
+        local up = direction:Cross(side).Unit
+        local previous = a
+        local steps = math.clamp(math.ceil(dist / 1.8), 3, 12)
+        for i = 1, steps do
+            local nextPos = a + diff * (i / steps)
+            if i < steps then
+                nextPos += side * (math.random() - 0.5) * 0.8
+                    + up * (math.random() - 0.5) * 0.8
+            end
+            trailPiece(previous, nextPos, color, 0.13, 0.45)
+            previous = nextPos
+        end
+    elseif style == "Arrow" then
+        trailPiece(a, b, color, 0.09, 0.8)
+        local headLength = math.min(dist * 0.4, 1.2)
+        local side = direction:Cross(Vector3.yAxis)
+        if side.Magnitude < 0.1 then side = direction:Cross(Vector3.xAxis) end
+        side = side.Unit
+        local up = direction:Cross(side).Unit
+        local base = b - direction * headLength
+        trailPiece(b, base + side * headLength * 0.45, color, 0.14, 0.8)
+        trailPiece(b, base - side * headLength * 0.45, color, 0.14, 0.8)
+        trailPiece(b, base + up * headLength * 0.45, color, 0.14, 0.8)
+        trailPiece(b, base - up * headLength * 0.45, color, 0.14, 0.8)
+    elseif style == "Comet" then
+        trailPiece(a, b, color, 0.22, 0.65, Enum.PartType.Cylinder)
+        trailPiece(b - direction * math.min(0.4, dist), b, Color3.new(1,1,1), 0.35, 0.65, Enum.PartType.Ball)
+    elseif style == "Laser" then
+        trailPiece(a, b, color, 0.22, 0.95)
+        trailPiece(a, b, Color3.new(1,1,1), 0.055, 0.95)
+    elseif style == "Spiral" then
+        local side = direction:Cross(Vector3.yAxis)
+        if side.Magnitude < 0.1 then side = direction:Cross(Vector3.xAxis) end
+        side = side.Unit
+        local up = direction:Cross(side).Unit
+        local steps = math.clamp(math.ceil(dist * 3), 4, 22)
+        local previous = a
+        for i = 1, steps do
+            local t = i / steps
+            local angle = t * math.pi * 6
+            local offset = (side * math.cos(angle) + up * math.sin(angle)) * 0.28 * math.sin(t * math.pi)
+            local nextPos = a + diff * t + offset
+            trailPiece(previous, nextPos, color, 0.1, 0.9)
+            previous = nextPos
+        end
+    elseif style == "Dashed" then
+        local steps = math.clamp(math.ceil(dist / 1.1), 1, 18)
+        for i = 0, steps - 1 do
+            trailPiece(a + diff * ((i + 0.1) / steps),
+                a + diff * ((i + 0.65) / steps), color, 0.12, 0.75)
+        end
+    else
+        trailPiece(a, b, color, 0.07, 1.2)
+    end
+end
+
+RunService.RenderStepped:Connect(function(dt)
+    for i = #TrailPieces, 1, -1 do
+        local effect = TrailPieces[i]
+        effect.Life -= dt
+        if effect.Life <= 0 or not effect.Part.Parent then
+            effect.Part:Destroy()
+            table.remove(TrailPieces, i)
         else
-            t.Part.Transparency = 1 - (t.Life / 1.5)
+            effect.Part.Transparency = math.clamp(1 - effect.Life / effect.MaxLife, 0, 1)
         end
     end
 end)
 
-local bulletStorage = t1.value1:FindFirstChild("bulletStorage") or Instance.new("Folder", t1.value1)
+local bulletStorage = workspace:FindFirstChild("bulletStorage") or Instance.new("Folder")
 bulletStorage.Name = "bulletStorage"
+bulletStorage.Parent = workspace
 
-bulletStorage.ChildAdded:Connect(function(child)
-    if not getgenv().BulletTrailsEnabled then return end
+local function trackBullet(child)
     if not child:IsA("BasePart") then return end
-    
-    local startPos = child.Position
+    local lastPos = child.Position
     local connection
-    
-    connection = RunService.RenderStepped:Connect(function()
-        if child and child.Parent then
-            local endPos = child.Position
-            CreateBulletTrail(startPos, endPos, getgenv().BulletTrailColor)
-            startPos = endPos
-        else
+    connection = RunService.Heartbeat:Connect(function()
+        if not child.Parent then
             connection:Disconnect()
+            return
         end
+        local pos = child.Position
+        if getgenv().BulletTrailsEnabled then
+            CreateBulletTrail(lastPos, pos, getgenv().BulletTrailColor)
+        end
+        lastPos = pos
     end)
-end)
+end
+bulletStorage.ChildAdded:Connect(trackBullet)
+for _, child in ipairs(bulletStorage:GetChildren()) do trackBullet(child) end
 
 v18:AddToggle({
     Name = "Bullet Trails",
     Flag = "BulletTrails",
-    Default = false,
-    Callback = function(p)
-        getgenv().BulletTrailsEnabled = p
+    Default = getgenv().BulletTrailsEnabled,
+    Callback = function(value)
+        getgenv().BulletTrailsEnabled = value
     end
 })
-
+v18:AddDropdown({
+    Name = "Trail Model",
+    Flag = "BulletTrailStyle",
+    Values = {"Classic", "Thunder", "Arrow", "Comet", "Laser", "Spiral", "Dashed"},
+    Default = getgenv().BulletTrailStyle,
+    Callback = function(value)
+        getgenv().BulletTrailStyle = value
+    end
+})
 v18:AddColorPicker({
     Name = "Trail Color",
     Flag = "BulletTrailColor",
-    Default = Color3.fromRGB(205, 50, 255),
-    Callback = function(p)
-        getgenv().BulletTrailColor = p
+    Default = getgenv().BulletTrailColor,
+    Callback = function(value)
+        getgenv().BulletTrailColor = value
     end
 })
 
