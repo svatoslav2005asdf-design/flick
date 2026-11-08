@@ -590,6 +590,7 @@ local function getSilentAimTarget()
     return closest
 end
 
+local renderShotTrail
 BulletHandler.Fire = function(data)
     local shouldChange = false
     local target = nil
@@ -615,6 +616,9 @@ BulletHandler.Fire = function(data)
     
     t1.Pen.arm(data)
 
+    if getgenv().BulletTrailsEnabled and renderShotTrail and data then
+        pcall(renderShotTrail, data)
+    end
     return oldFire(data)
 end
 
@@ -3680,28 +3684,24 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
-local bulletStorage = workspace:FindFirstChild("bulletStorage") or Instance.new("Folder")
-bulletStorage.Name = "bulletStorage"
-bulletStorage.Parent = workspace
-
-local function trackBullet(child)
-    if not child:IsA("BasePart") then return end
-    local lastPos = child.Position
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        if not child.Parent then
-            connection:Disconnect()
-            return
-        end
-        local pos = child.Position
-        if getgenv().BulletTrailsEnabled then
-            CreateBulletTrail(lastPos, pos, getgenv().BulletTrailColor)
-        end
-        lastPos = pos
-    end)
+-- Draw from the game's actual firing event rather than waiting for
+-- bulletStorage, which may never receive physical projectiles.
+renderShotTrail = function(data)
+    local origin = data.Origin
+    local direction = data.Direction
+    if typeof(origin) ~= "Vector3" or typeof(direction) ~= "Vector3" or direction.Magnitude < 0.001 then
+        return
+    end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local ignore = {TrailFolder}
+    if t1.value8.Character then table.insert(ignore, t1.value8.Character) end
+    params.FilterDescendantsInstances = ignore
+    local distance = 180
+    local hit = workspace:Raycast(origin, direction.Unit * distance, params)
+    local endpoint = hit and hit.Position or (origin + direction.Unit * distance)
+    CreateBulletTrail(origin, endpoint, getgenv().BulletTrailColor)
 end
-bulletStorage.ChildAdded:Connect(trackBullet)
-for _, child in ipairs(bulletStorage:GetChildren()) do trackBullet(child) end
 
 v18:AddToggle({
     Name = "Bullet Trails",
