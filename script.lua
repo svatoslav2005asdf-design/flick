@@ -104,14 +104,33 @@ local v13 = v9.new({
 })
 local UserInputService = game:GetService("UserInputService")
 
-t1.value4 = game.CoreGui:WaitForChild("Lesxov Tap"):WaitForChild("FatalFtame")
+-- Не блокируем создание вкладок, если библиотека изменила имя фрейма.
+local function findMainFrame()
+    local gui = game.CoreGui:FindFirstChild("Lesxov Tap")
+    if not gui then return nil end
+    return gui:FindFirstChild("FatalFrame", true)
+        or gui:FindFirstChild("FatalFtame", true)
+        or gui:FindFirstChildWhichIsA("Frame", true)
+end
+
+t1.value4 = findMainFrame()
+task.defer(function()
+    for _ = 1, 30 do
+        if t1.value4 then break end
+        t1.value4 = findMainFrame()
+        task.wait(0.1)
+    end
+end)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then
         return
     end
 
     if input.KeyCode == Enum.KeyCode.H then
-        t1.value4.Visible = not t1.value4.Visible
+        t1.value4 = t1.value4 or findMainFrame()
+        if t1.value4 then
+            t1.value4.Visible = not t1.value4.Visible
+        end
     end
 end)
 v13:AddConfig():Init("Counter-Strike 2", "Lesxov-Win")
@@ -1136,11 +1155,11 @@ function t1.value48(p28, p29)
         if v217 then
             local Charm = v217:FindFirstChild("Charm", true)
 
-            if Charm and p28 == Charm or Charm:IsAncestorOf(p28) then
+            if Charm and (p28 == Charm or p28:IsDescendantOf(Charm)) then
                 return
             end
         end
-    elseif p28.Name ~= "Charm" and (not p28.Parent and p28.Parent.Name == "Charm") then
+    elseif p28.Name ~= "Charm" and p28.Parent and p28.Parent.Name ~= "Charm" then
         return
     end
 
