@@ -1,4 +1,3 @@
-
 local t1 = {
 	value1 = game:GetService("Workspace")
 }
@@ -105,14 +104,25 @@ local v13 = v9.new({
 })
 local UserInputService = game:GetService("UserInputService")
 
-t1.value4 = game.CoreGui:WaitForChild("Lesxov Tap"):WaitForChild("FatalFtame")
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then
-        return
+-- non-blocking: lib may parent its gui to gethui()/CoreGui/PlayerGui under a different name
+function t1.findFrame()
+    local roots = {}
+    pcall(function() if gethui then roots[#roots + 1] = gethui() end end)
+    roots[#roots + 1] = game:GetService("CoreGui")
+    local pg = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+    if pg then roots[#roots + 1] = pg end
+    for _, root in ipairs(roots) do
+        local ok, f = pcall(function() return root:FindFirstChild("FatalFtame", true) or root:FindFirstChild("FatalFrame", true) end)
+        if ok and f then return f end
     end
+end
 
+local UserInputService = game:GetService("UserInputService")
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.H then
-        t1.value4.Visible = not t1.value4.Visible
+        t1.value4 = t1.value4 or t1.findFrame()
+        if t1.value4 then t1.value4.Visible = not t1.value4.Visible end
     end
 end)
 v13:AddConfig():Init("Counter-Strike 2", "Lesxov-Win")
