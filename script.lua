@@ -1,5 +1,5 @@
 local t1 = {
-        value1 = game:GetService("Workspace")
+	value1 = game:GetService("Workspace")
 }
 
 function t1.value2(p1)
@@ -83,14 +83,14 @@ local v9 = loadstring(game:HttpGet("https://raw.githubusercontent.com/CludeHub/F
 local v11 = v9:CreateNotifier()
 -- интро без звука
 v9:Loader({
-        Name = "Lesxov Tap",
-        Duration = 4
+	Name = "Lesxov Tap",
+	Duration = 4
 })
 local v12 = "Hello, " .. game.Players.LocalPlayer.DisplayName .. "! Welcome back."
 v11:Notify({
-        Title = "Lesxov Tap",
-        Content = "made by lesxov",
-        Icon = "clipboard"
+	Title = "Lesxov Tap",
+	Content = "made by lesxov",
+	Icon = "clipboard"
 })
 v11:Notify({
     Title = "LESXOV TAP LOADED",
@@ -99,85 +99,77 @@ v11:Notify({
 })
 
 local v13 = v9.new({
-        Name = "Lesxov Tap",
-        Expire = "never"
+	Name = "Lesxov Tap",
+	Expire = "never"
 })
 local UserInputService = game:GetService("UserInputService")
 
--- Не блокируем создание вкладок, если библиотека изменила имя фрейма.
-local function findMainFrame()
-    local gui = game.CoreGui:FindFirstChild("Lesxov Tap")
-    if not gui then return nil end
-    return gui:FindFirstChild("FatalFrame", true)
-        or gui:FindFirstChild("FatalFtame", true)
-        or gui:FindFirstChildWhichIsA("Frame", true)
+-- non-blocking: lib may parent its gui to gethui()/CoreGui/PlayerGui under a different name
+function t1.findFrame()
+    local roots = {}
+    pcall(function() if gethui then roots[#roots + 1] = gethui() end end)
+    roots[#roots + 1] = game:GetService("CoreGui")
+    local pg = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+    if pg then roots[#roots + 1] = pg end
+    for _, root in ipairs(roots) do
+        local ok, f = pcall(function() return root:FindFirstChild("FatalFtame", true) or root:FindFirstChild("FatalFrame", true) end)
+        if ok and f then return f end
+    end
 end
 
-t1.value4 = findMainFrame()
-task.defer(function()
-    for _ = 1, 30 do
-        if t1.value4 then break end
-        t1.value4 = findMainFrame()
-        task.wait(0.1)
-    end
-end)
+local UserInputService = game:GetService("UserInputService")
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then
-        return
-    end
-
+    if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.H then
-        t1.value4 = t1.value4 or findMainFrame()
-        if t1.value4 then
-            t1.value4.Visible = not t1.value4.Visible
-        end
+        t1.value4 = t1.value4 or t1.findFrame()
+        if t1.value4 then t1.value4.Visible = not t1.value4.Visible end
     end
 end)
 v13:AddConfig():Init("Counter-Strike 2", "Lesxov-Win")
 
 local function mkMenu(name, icon)
-        local ok, m = pcall(function()
-                return v13:AddMenu({ Name = name, Icon = icon })
-        end)
-        if ok and m then return m end
-        return v13:AddMenu({ Name = name, Icon = "settings" })
+	local ok, m = pcall(function()
+		return v13:AddMenu({ Name = name, Icon = icon })
+	end)
+	if ok and m then return m end
+	return v13:AddMenu({ Name = name, Icon = "settings" })
 end
 
 local v15 = mkMenu("AIM", "crosshair")
 t1.mVisuals = mkMenu("VISUALS", "eye")
 t1.mMove = mkMenu("MOVEMENT", "move")
 t1.mMisc = mkMenu("MISC", "layers")
+t1.mESP = mkMenu("ESP", "target")
 local vSettings = mkMenu("SETTINGS", "cog")
-t1.mESP = mkMenu("ESP", "eye")
 
 local v16 = v15:AddSection({
-        Position = "left",
-        Name = "SILENT AIM"
+	Position = "left",
+	Name = "SILENT AIM"
 })
 local v17 = t1.mVisuals:AddSection({
-        Position = "left",
-        Name = "VIEW"
+	Position = "left",
+	Name = "VIEW"
 })
 local v18 = t1.mVisuals:AddSection({
-        Position = "center",
-        Name = "PLAYER"
+	Position = "center",
+	Name = "PLAYER"
 })
 local v19 = t1.mVisuals:AddSection({
-        Position = "right",
-        Name = "WORLD"
+	Position = "right",
+	Name = "WORLD"
 })
 local v20 = t1.mMove:AddSection({
-        Position = "left",
-        Name = "MOVEMENT"
+	Position = "left",
+	Name = "MOVEMENT"
 })
 local v21 = t1.mMisc:AddSection({
-        Position = "left",
-        Name = "MISC"
+	Position = "left",
+	Name = "MISC"
 })
 
 local v22 = v15:AddSection({
-        Position = "center",
-        Name = "RAGE BOT"
+	Position = "center",
+	Name = "RAGE BOT"
 })
 
 -- ============================================================
@@ -198,10 +190,10 @@ do
             "RageBotEnabled", "RageBotHitbox", "RageBotAutoFire",
             "AttackIntervalEnabled", "AttackInterval", "AttackHold", "AttackJitter",
             "PenetrationEnabled", "PenetrationMax",
-            "RageMagEnabled", "WallbangEnabled", "FireRateEnabled", "FireRateMult",
+            "RageMagEnabled", "WallbangEnabled", "WallbangAutoFire", "WallbangFOV", "NoReloadEnabled",
             "GodModeEnabled", "CrosshairEnabled", "CrosshairSize", "CrosshairGap",
             "SkinEnabled", "SkinName", "SnowStyle",
-            "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll",
+            "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll", "UndoDuration",
         },
     }
 
@@ -340,6 +332,7 @@ getgenv().SpinMode = "Basic Spin"
 getgenv().SpinSpeed = 25
 getgenv().SpinJitterAngle = 65
 getgenv().SpinDesyncRoll = 0
+getgenv().UndoDuration = 2
 
 getgenv().RageBotEnabled = false
 getgenv().RageBotHitbox = "Head"
@@ -354,8 +347,9 @@ getgenv().PenetrationEnabled = false
 getgenv().PenetrationMax = 3     -- surfaces a shot may pass through
 getgenv().RageMagEnabled = false
 getgenv().WallbangEnabled = false
-getgenv().FireRateEnabled = false
-getgenv().FireRateMult = 2
+getgenv().WallbangAutoFire = false
+getgenv().WallbangFOV = 30
+getgenv().NoReloadEnabled = false
 getgenv().GodModeEnabled = false
 getgenv().CrosshairEnabled = false
 getgenv().CrosshairSize = 12
@@ -413,6 +407,38 @@ function getRageBotTarget()
     return closest
 end
 
+-- wallbang FOV target: closest-to-crosshair player inside WallbangFOV (deg), walls ignored
+function getWallbangTarget()
+    if not getgenv().WallbangEnabled then return nil end
+    local c = t1.value6.CurrentCamera
+    local fov = getgenv().WallbangFOV or 30
+    local hitbox = getgenv().RageBotHitbox or "Head"
+    local best, bestAng = nil, math.huge
+    for _, player in ipairs(t1.value5:GetPlayers()) do
+        local char = player.Character
+        local hum = char and char:FindFirstChild("Humanoid")
+        if player ~= t1.value8 and hum and hum.Health > 0 then
+            local part
+            if hitbox == "All" then
+                for _, n in ipairs({"Head", "UpperTorso", "Torso", "HumanoidRootPart"}) do
+                    part = char:FindFirstChild(n)
+                    if part then break end
+                end
+            else
+                part = char:FindFirstChild(hitbox) or char:FindFirstChild("Head")
+            end
+            if part then
+                local dir = (part.Position - c.CFrame.Position).Unit
+                local ang = math.deg(math.acos(math.clamp(c.CFrame.LookVector:Dot(dir), -1, 1)))
+                if ang <= fov and ang < bestAng then
+                    bestAng, best = ang, part
+                end
+            end
+        end
+    end
+    return best
+end
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BulletHandler = require(ReplicatedStorage.ModuleScripts.GunModules:WaitForChild("BulletHandler"))
 local SignalManager = require(ReplicatedStorage:WaitForChild("SignalManager"))
@@ -420,10 +446,9 @@ local oldFire = BulletHandler.Fire
 
 -- ============================================================
 -- [SURFACE PENETRATION] core
--- no metamethod hooks on game internals. METHOD 1: hook legacy FindPartOnRay /
--- FindPartOnRayWithIgnoreList (the game's own hit checks) so walls are skipped.
--- METHOD 2 (fallback when hookfunction is missing): on each shot temporarily
--- detach up to PenetrationMax wall parts on the shot line, restore 500 ms later.
+-- no metamethod hooks. on each shot: walk the shot line with workspace:Raycast,
+-- set CanQuery=false on up to PenetrationMax non-player parts in front of a player,
+-- restore them 350 ms later. nothing is applied when no player is reachable.
 -- ============================================================
 do
     local Players = game:GetService("Players")
@@ -432,7 +457,6 @@ do
     t1.Pen = Pen
 
     local function isPlayerPart(inst)
-        if not inst then return false end
         local model = inst:FindFirstAncestorWhichIsA("Model")
         while model do
             if Players:GetPlayerFromCharacter(model) then return true end
@@ -441,79 +465,19 @@ do
         return false
     end
 
-    local function penEnabled()
-        return getgenv().WallbangEnabled or getgenv().PenetrationEnabled
-    end
-
-    -- СПОСОБ 1: хук легаси-лучей игры. Игра проверяет попадания через
-    -- FindPartOnRayWithIgnoreList / FindPartOnRay — хук пропускает стены
-    -- (до PenetrationMax поверхностей), останавливаясь только на игроках.
-    if hookfunction and not Pen._hooked then
-        Pen._hooked = true
-        pcall(function()
-            local realOld
-            local function newFind(self, ray, ignoreList, a, b)
-                local res = realOld(self, ray, ignoreList, a, b)
-                if not penEnabled() then return res end
-                local hops = 0
-                local limit = math.max(getgenv().PenetrationMax or 3, 1)
-                while res and hops < limit and not isPlayerPart(res) do
-                    local ig = {}
-                    if ignoreList then
-                        for i = 1, #ignoreList do ig[i] = ignoreList[i] end
-                    end
-                    ig[#ig + 1] = res
-                    ignoreList = ig
-                    res = realOld(self, ray, ignoreList, a, b)
-                    hops = hops + 1
-                end
-                return res
-            end
-
-            realOld = hookfunction(workspace.FindPartOnRayWithIgnoreList, newFind)
-        end)
-        pcall(function()
-            local realOld2
-            local function newFind2(self, ray, ignoreDescendants, a, b)
-                local res = realOld2(self, ray, ignoreDescendants, a, b)
-                if not penEnabled() then return res end
-                local hops = 0
-                local limit = math.max(getgenv().PenetrationMax or 3, 1)
-                while res and hops < limit and not isPlayerPart(res) do
-                    local ig = {}
-                    if ignoreDescendants then
-                        for i = 1, #ignoreDescendants do ig[i] = ignoreDescendants[i] end
-                    end
-                    ig[#ig + 1] = res
-                    res = realOld2(self, ray, ig, a, b)
-                    hops = hops + 1
-                end
-                return res
-            end
-
-            realOld2 = hookfunction(workspace.FindPartOnRay, newFind2)
-        end)
-    end
-
-    -- СПОСОБ 2 (фолбэк, если хуков нет): на каждый выстрел временно убираем
-    -- стены с линии выстрела (parent = nil) и возвращаем их через 0.5 с.
     local function restore(list)
         for _, e in ipairs(list) do
-            pcall(function()
-                if e.parent then e.part.Parent = e.parent end
-                e.part.CanQuery = e.was
-            end)
+            pcall(function() e.part.CanQuery = e.was end)
         end
     end
 
     function Pen.arm(data)
-        if Pen._hooked then return end -- хук уже всё делает
-        if not penEnabled() then return end
+        if not (getgenv().PenetrationEnabled or getgenv().WallbangEnabled) then return end
         if not data or not data.Origin or not data.Direction then return end
 
         local limit = getgenv().PenetrationMax or 3
         local origin = data.Origin
-        local dir = data.Direction.Unit * 2048
+        local dir = data.Direction.Unit * 1000
         local ignore = {}
         local lp = Players.LocalPlayer
         if lp and lp.Character then ignore[1] = lp.Character end
@@ -527,18 +491,15 @@ do
             if not res then break end
             if isPlayerPart(res.Instance) then reached = true break end
             if i > limit then break end
-            touched[#touched + 1] = { part = res.Instance, was = res.Instance.CanQuery, parent = res.Instance.Parent }
+            touched[#touched + 1] = { part = res.Instance, was = res.Instance.CanQuery }
             ignore[#ignore + 1] = res.Instance
         end
 
         if not reached or #touched == 0 then return end
         for _, e in ipairs(touched) do
-            pcall(function()
-                e.part.CanQuery = false
-                e.part.Parent = nil
-            end)
+            pcall(function() e.part.CanQuery = false end)
         end
-        task.delay(0.5, function() restore(touched) end)
+        task.delay(0.35, function() restore(touched) end)
     end
 end
 
@@ -590,7 +551,6 @@ local function getSilentAimTarget()
     return closest
 end
 
-local renderShotTrail
 BulletHandler.Fire = function(data)
     local shouldChange = false
     local target = nil
@@ -609,6 +569,13 @@ BulletHandler.Fire = function(data)
         end
     end
     
+    if not shouldChange and getgenv().WallbangEnabled then
+        target = getWallbangTarget()
+        if target then
+            shouldChange = true
+        end
+    end
+
     if shouldChange and target and data and data.Origin and data.Misc then
         data.Direction = (target.Position - data.Origin).Unit
         data.Misc.CamCFrame = CFrame.new(data.Misc.CamCFrame.Position, target.Position)
@@ -616,9 +583,6 @@ BulletHandler.Fire = function(data)
     
     t1.Pen.arm(data)
 
-    if getgenv().BulletTrailsEnabled and renderShotTrail and data then
-        pcall(renderShotTrail, data)
-    end
     return oldFire(data)
 end
 
@@ -708,6 +672,29 @@ do
     })
 end
 
+-- ============================================================
+-- [WALLBANG AUTO FIRE] цель зашла в WallbangFOV -> стреляет сам
+-- ============================================================
+task.spawn(function()
+    while true do
+        local g = getgenv()
+        if g.WallbangEnabled and g.WallbangAutoFire
+            and not (g.RageBotEnabled and g.RageBotAutoFire) and getWallbangTarget() then
+            local interval, hold = 0.1, 0.05
+            if g.AttackIntervalEnabled then
+                interval = g.AttackInterval / 1000
+                hold = math.min(g.AttackHold / 1000, interval)
+            end
+            SignalManager.Fire("FireWeapon", Enum.UserInputState.Begin)
+            task.wait(hold)
+            SignalManager.Fire("FireWeapon", Enum.UserInputState.End)
+            task.wait(math.max(interval - hold, 0.01))
+        else
+            task.wait(0.05)
+        end
+    end
+end)
+
 v22:AddToggle({
     Name = "Enable",
     Flag = "RageBot_Enable",
@@ -744,6 +731,26 @@ v22:AddToggle({
     end
 })
 
+v22:AddToggle({
+    Name = "Wallbang Auto Fire (in FOV)",
+    Flag = "WallbangAutoFire",
+    Default = getgenv().WallbangAutoFire,
+    Callback = function(p)
+        getgenv().WallbangAutoFire = p
+    end
+})
+
+v22:AddSlider({
+    Name = "Wallbang FOV",
+    Flag = "WallbangFOV",
+    Min = 1,
+    Max = 180,
+    Default = math.clamp(getgenv().WallbangFOV, 1, 180),
+    Callback = function(p)
+        getgenv().WallbangFOV = p
+    end
+})
+
 v22:AddDropdown({
     Name = "Target",
     Flag = "RageBot_Target",
@@ -761,10 +768,10 @@ v22:AddDropdown({
 })
 
 v16:AddToggle({
-        Name = "Enable",
-        Flag = "SilentAimEnabled",
-        Default = getgenv().SilentAim,
-        Callback = function(p)
+	Name = "Enable",
+	Flag = "SilentAimEnabled",
+	Default = getgenv().SilentAim,
+	Callback = function(p)
     getgenv().SilentAim = p
 end
 })
@@ -839,40 +846,24 @@ uiGradient.Color = ColorSequence.new{
 local rotationSpeed = 0.3
 
 local function updateFOVCircle()
+    -- показывает круг либо silent aim FOV, либо wallbang FOV (что сейчас активно)
+    local silentOn = getgenv().SilentAimFOVEnabled and getgenv().SilentAim
+    local wallbangOn = getgenv().WallbangEnabled
     local radius = getgenv().SilentAimFOV or 50
+    if not silentOn and wallbangOn then
+        -- wallbang FOV в градусах -> пиксели экрана
+        local c = workspace.CurrentCamera
+        local deg = math.clamp(getgenv().WallbangFOV or 30, 1, 89)
+        radius = math.tan(math.rad(deg)) / math.tan(math.rad(c.FieldOfView / 2)) * (c.ViewportSize.Y / 2)
+        radius = math.clamp(radius, 5, 2000)
+    end
     fovCircleFrame.Size = UDim2.new(0, radius * 2, 0, radius * 2)
-    fovCircleFrame.Visible = getgenv().SilentAimFOVEnabled and getgenv().SilentAim
+    fovCircleFrame.Visible = silentOn or wallbangOn
 end
 
 RunService.RenderStepped:Connect(function()
     uiGradient.Rotation = uiGradient.Rotation + rotationSpeed
-end)
-
--- FOV circle через Drawing: радиус в пикселях считается из градусов,
--- поэтому круг совпадает с реальным углом захвата аима
-local fovDrawing = Drawing.new("Circle")
-fovDrawing.Visible = false
-fovDrawing.Thickness = 1.5
-fovDrawing.NumSides = 64
-fovDrawing.Filled = false
-fovDrawing.Color = Color3.fromRGB(255, 255, 255)
-
-RunService.RenderStepped:Connect(function()
-    local cam = workspace.CurrentCamera
-    if not (getgenv().SilentAimFOVEnabled and getgenv().SilentAim and cam and cam.Parent) then
-        fovDrawing.Visible = false
-        fovCircleFrame.Visible = false
-        return
-    end
-
-    local deg = getgenv().SilentAimFOV or 50
-    local vp = cam.ViewportSize
-    local px = math.tan(math.rad(deg)) / math.tan(math.rad(cam.FieldOfView / 2)) * (vp.Y / 2)
-
-    fovDrawing.Radius = math.clamp(px, 2, 4000)
-    fovDrawing.Position = Vector2.new(vp.X / 2, vp.Y / 2)
-    fovDrawing.Visible = true
-    fovCircleFrame.Visible = false
+    updateFOVCircle()
 end)
 
 t1.value14 = game:GetService("Players")
@@ -896,9 +887,9 @@ function t1.value26(p13)
     local v163 = p13.Position - CFramePosition
     local ray = Ray.new(CFramePosition, v163.Unit * v163.Magnitude)
     local t2 = {
-                t1.value19.Character,
-                t1.value16
-        }
+		t1.value19.Character,
+		t1.value16
+	}
     local PartOnRayWithIgnoreList = t1.value1:FindPartOnRayWithIgnoreList(ray, t2)
 
     return not PartOnRayWithIgnoreList or (PartOnRayWithIgnoreList == p13 or PartOnRayWithIgnoreList:IsDescendantOf(p13.Parent))
@@ -977,10 +968,10 @@ t1.value19.CharacterAdded:Connect(v33)
 t1.value32 = nil
 t1.value33 = {}
 v21:AddToggle({
-        Name = "Custom gun sound",
-        Flag = "CustomGunSound",
-        Default = false,
-        Callback = function(p23)
+	Name = "Custom gun sound",
+	Flag = "CustomGunSound",
+	Default = false,
+	Callback = function(p23)
     local s1 = "rbxassetid://2476571739"
     local function v198(p24)
         if p24:IsA("Sound") and p24.Name == "GunShot" then
@@ -1025,18 +1016,18 @@ end
 })
 t1.value34 = game:GetService("Players").LocalPlayer
 t1.value35 = {
-        Crit = "rbxassetid://138705939667182",
-        Bang = "rbxassetid://138705939667182"
+	Crit = "rbxassetid://138705939667182",
+	Bang = "rbxassetid://138705939667182"
 }
 t1.value36 = {
-        Bell = "rbxassetid://123827281575056",
-        Metal = "rbxassetid://9125672731",
-        Growl = "rbxassetid://136705296952779",
-        Brutal = "rbxassetid://82176913611683",
-        Money = "rbxassetid://9117067586",
-        Sparkle = "rbxassetid://78601008552434",
-        ["Aray ko"] = "rbxassetid://122864243311961",
-        Hehe = "rbxassetid://18381322350"
+	Bell = "rbxassetid://123827281575056",
+	Metal = "rbxassetid://9125672731",
+	Growl = "rbxassetid://136705296952779",
+	Brutal = "rbxassetid://82176913611683",
+	Money = "rbxassetid://9117067586",
+	Sparkle = "rbxassetid://78601008552434",
+	["Aray ko"] = "rbxassetid://122864243311961",
+	Hehe = "rbxassetid://18381322350"
 }
 t1.value37 = false
 t1.value38 = nil
@@ -1075,40 +1066,40 @@ function t1.value40()
     end
 end
 v21:AddToggle({
-        Name = "Custom hit sound",
-        Flag = "HitSoundEnabled",
-        Default = false,
-        Callback = function(p25)
+	Name = "Custom hit sound",
+	Flag = "HitSoundEnabled",
+	Default = false,
+	Callback = function(p25)
     t1.value37 = p25
     t1.value40()
 end
 })
 v21:AddDropdown({
-        Name = "Hit sound",
-        Flag = "HitSoundType",
-        Values = {
-                "Bell",
-                "Metal",
-                "Brutal",
-                "Growl",
-                "Money",
-                "Sparkle",
-                "Aray ko",
-                "Hehe"
-        },
-        Default = "Bell",
-        Callback = function(p26)
+	Name = "Hit sound",
+	Flag = "HitSoundType",
+	Values = {
+		"Bell",
+		"Metal",
+		"Brutal",
+		"Growl",
+		"Money",
+		"Sparkle",
+		"Aray ko",
+		"Hehe"
+	},
+	Default = "Bell",
+	Callback = function(p26)
     t1.value39 = p26
     t1.value40()
 end
 })
 v21:AddSlider({
-        Name = "Volume",
-        Flag = "HitSoundVolume",
-        Min = 1,
-        Max = 100,
-        Default = 100,
-        Callback = function(p27)
+	Name = "Volume",
+	Flag = "HitSoundVolume",
+	Min = 1,
+	Max = 100,
+	Default = 100,
+	Callback = function(p27)
     t1.value38 = p27 / 100
     t1.value40()
 end
@@ -1159,11 +1150,11 @@ function t1.value48(p28, p29)
         if v217 then
             local Charm = v217:FindFirstChild("Charm", true)
 
-            if Charm and (p28 == Charm or p28:IsDescendantOf(Charm)) then
+            if Charm and p28 == Charm or Charm:IsAncestorOf(p28) then
                 return
             end
         end
-    elseif p28.Name ~= "Charm" and p28.Parent and p28.Parent.Name ~= "Charm" then
+    elseif p28.Name ~= "Charm" and (not p28.Parent and p28.Parent.Name == "Charm") then
         return
     end
 
@@ -1229,11 +1220,11 @@ end
 t1.value41.CharacterAdded:Connect(v42)
 
 local v43 = v18:AddToggle({
-        Name = "Weapon",
-        Flag = "WeaponLatex",
-        Option = true,
-        Default = false,
-        Callback = function(p32)
+	Name = "Weapon",
+	Flag = "WeaponLatex",
+	Option = true,
+	Default = false,
+	Callback = function(p32)
     t1.value42 = p32
 
     if t1.value41.Character then
@@ -1242,17 +1233,17 @@ local v43 = v18:AddToggle({
 end
 })
 v43.Option:AddDropdown({
-        Name = "Style",
-        Flag = "WeaponStyle",
-        Values = {
-                "None",
-                "Latex",
-                "Lava",
-                "Metal",
-                "Glow"
-        },
-        Default = "Latex",
-        Callback = function(p33)
+	Name = "Style",
+	Flag = "WeaponStyle",
+	Values = {
+		"None",
+		"Latex",
+		"Lava",
+		"Metal",
+		"Glow"
+	},
+	Default = "Latex",
+	Callback = function(p33)
     t1.value44 = p33
 
     if t1.value42 and t1.value41.Character then
@@ -1264,10 +1255,10 @@ local Option = v43.Option
 local color3 = Color3.fromRGB(140, 140, 245)
 
 Option:AddColorPicker({
-        Name = "Color",
-        Flag = "WeaponColor",
-        Default = color3,
-        Callback = function(p34)
+	Name = "Color",
+	Flag = "WeaponColor",
+	Default = color3,
+	Callback = function(p34)
     t1.value46 = p34
 
     if t1.value42 and t1.value41.Character then
@@ -1276,11 +1267,11 @@ Option:AddColorPicker({
 end
 })
 local v46 = v18:AddToggle({
-        Name = "Charm",
-        Flag = "CharmLatex",
-        Option = true,
-        Default = false,
-        Callback = function(p35)
+	Name = "Charm",
+	Flag = "CharmLatex",
+	Option = true,
+	Default = false,
+	Callback = function(p35)
     t1.value43 = p35
 
     if t1.value41.Character then
@@ -1289,17 +1280,17 @@ local v46 = v18:AddToggle({
 end
 })
 v46.Option:AddDropdown({
-        Name = "Style",
-        Flag = "CharmStyle",
-        Values = {
-                "None",
-                "Latex",
-                "Metal",
-                "Lava",
-                "Glow"
-        },
-        Default = "Latex",
-        Callback = function(p36)
+	Name = "Style",
+	Flag = "CharmStyle",
+	Values = {
+		"None",
+		"Latex",
+		"Metal",
+		"Lava",
+		"Glow"
+	},
+	Default = "Latex",
+	Callback = function(p36)
     t1.value45 = p36
 
     if t1.value43 and t1.value41.Character then
@@ -1311,10 +1302,10 @@ local Option2 = v46.Option
 local color3_2 = Color3.fromRGB(140, 140, 245)
 
 Option2:AddColorPicker({
-        Name = "Color",
-        Flag = "CharmColor",
-        Default = color3_2,
-        Callback = function(p37)
+	Name = "Color",
+	Flag = "CharmColor",
+	Default = color3_2,
+	Callback = function(p37)
     t1.value47 = p37
 
     if t1.value43 and t1.value41.Character then
@@ -1345,11 +1336,11 @@ function t1.value51(p38, p39)
     BloomEffect2.Parent = t1.value50
 end
 t1.value52 = v19:AddToggle({
-        Name = "Night mode",
-        Option = true,
-        Flag = "NightModee",
-        Default = false,
-        Callback = function(p40)
+	Name = "Night mode",
+	Option = true,
+	Flag = "NightModee",
+	Default = false,
+	Callback = function(p40)
     if p40 then
         t1.value51(10, 1)
 
@@ -1367,12 +1358,12 @@ t1.value52 = v19:AddToggle({
 end
 })
 t1.value52.Option:AddSlider({
-        Name = "Bloom Size",
-        Flag = "NightBloomSize",
-        Min = 1,
-        Max = 100,
-        Default = 20,
-        Callback = function(p41)
+	Name = "Bloom Size",
+	Flag = "NightBloomSize",
+	Min = 1,
+	Max = 100,
+	Default = 20,
+	Callback = function(p41)
     if t1.value52.Value then
         local v239 = t1.value50:FindFirstChild("NightBloom") and t1.value50.NightBloom.Intensity or 1
 
@@ -1381,12 +1372,12 @@ t1.value52.Option:AddSlider({
 end
 })
 t1.value52.Option:AddSlider({
-        Name = "Bloom Intensity",
-        Flag = "NightBloomIntensity",
-        Min = 0,
-        Max = 5,
-        Default = 1,
-        Callback = function(p42)
+	Name = "Bloom Intensity",
+	Flag = "NightBloomIntensity",
+	Min = 0,
+	Max = 5,
+	Default = 1,
+	Callback = function(p42)
     if t1.value52.Value then
         local v241 = t1.value50:FindFirstChild("NightBloom") and t1.value50.NightBloom.Size or 24
 
@@ -1406,36 +1397,36 @@ t1.value56 = {}
 local color3_3 = Color3.fromRGB(180, 180, 255)
 
 t1.value57 = {
-        Density = 250,
-        Speed = 100,
-        Color = color3_3
+	Density = 250,
+	Speed = 100,
+	Color = color3_3
 }
 local color3_4 = Color3.fromRGB(255, 255, 255)
 
 t1.value58 = {
-        Density = 150,
-        Speed = 10,
-        Size = 0.2,
-        Color = color3_4
+	Density = 150,
+	Speed = 10,
+	Size = 0.2,
+	Color = color3_4
 }
 t1.value59 = {
-        Type = "None"
+	Type = "None"
 }
 t1.value60 = Instance.new("Sound")
 t1.value60.Looped = true
 t1.value60.Volume = 0.8
 t1.value60.Parent = t1.value1
 local v54 = v19:AddDropdown({
-        Name = "Weather",
-        Flag = "WeatherDropdown",
-        Option = true,
-        Default = "None",
-        Values = {
-                "None",
-                "Rain",
-                "Snow"
-        },
-        Callback = function(p43)
+	Name = "Weather",
+	Flag = "WeatherDropdown",
+	Option = true,
+	Default = "None",
+	Values = {
+		"None",
+		"Rain",
+		"Snow"
+	},
+	Callback = function(p43)
     t1.value59.Type = p43
     for v245, v246 in pairs(t1.value55) do
 
@@ -1463,22 +1454,22 @@ local v54 = v19:AddDropdown({
 end
 })
 v54.Option:AddSlider({
-        Name = "Rain Density",
-        Flag = "RainDensity",
-        Min = 50,
-        Max = 2000,
-        Default = 600,
-        Callback = function(p44)
+	Name = "Rain Density",
+	Flag = "RainDensity",
+	Min = 50,
+	Max = 2000,
+	Default = 600,
+	Callback = function(p44)
     t1.value57.Density = p44
 end
 })
 v54.Option:AddSlider({
-        Name = "Rain Speed",
-        Flag = "RainSpeed",
-        Min = 50,
-        Max = 300,
-        Default = 150,
-        Callback = function(p45)
+	Name = "Rain Speed",
+	Flag = "RainSpeed",
+	Min = 50,
+	Max = 300,
+	Default = 150,
+	Callback = function(p45)
     t1.value57.Speed = p45
 end
 })
@@ -1487,30 +1478,30 @@ local AddColorPicker2 = Option3.AddColorPicker
 local color3_5 = Color3.fromRGB(255, 255, 255)
 
 AddColorPicker2(Option3, {
-        Name = "Rain Color",
-        Flag = "RainColor",
-        Default = color3_5,
-        Callback = function(p46)
+	Name = "Rain Color",
+	Flag = "RainColor",
+	Default = color3_5,
+	Callback = function(p46)
     t1.value57.Color = p46
 end
 })
 v54.Option:AddSlider({
-        Name = "Snow Density",
-        Flag = "SnowDensity",
-        Min = 50,
-        Max = 400,
-        Default = 250,
-        Callback = function(p47)
+	Name = "Snow Density",
+	Flag = "SnowDensity",
+	Min = 50,
+	Max = 400,
+	Default = 250,
+	Callback = function(p47)
     t1.value58.Density = p47
 end
 })
 v54.Option:AddSlider({
-        Name = "Snow Speed",
-        Flag = "SnowSpeed",
-        Min = 10,
-        Max = 100,
-        Default = 30,
-        Callback = function(p48)
+	Name = "Snow Speed",
+	Flag = "SnowSpeed",
+	Min = 10,
+	Max = 100,
+	Default = 30,
+	Callback = function(p48)
     t1.value58.Speed = p48
 end
 })
@@ -1518,10 +1509,10 @@ local Option4 = v54.Option
 local color3_6 = Color3.fromRGB(255, 255, 255)
 
 Option4:AddColorPicker({
-        Name = "Snow Color",
-        Flag = "SnowColor",
-        Default = color3_6,
-        Callback = function(p49)
+	Name = "Snow Color",
+	Flag = "SnowColor",
+	Default = color3_6,
+	Callback = function(p49)
     t1.value58.Color = p49
 end
 })
@@ -1615,50 +1606,50 @@ end)
 t1.value61 = game:GetService("Lighting")
 
 local t3 = {
-        SkyboxLf = "rbxassetid://12173273102",
-        SkyboxUp = "rbxassetid://12173274627",
-        SkyboxDn = "rbxassetid://12173271252",
-        SkyboxBk = "rbxassetid://12173268397",
-        SkyboxRt = "rbxassetid://12173273903",
-        SkyboxFt = "rbxassetid://12173272214"
+	SkyboxLf = "rbxassetid://12173273102",
+	SkyboxUp = "rbxassetid://12173274627",
+	SkyboxDn = "rbxassetid://12173271252",
+	SkyboxBk = "rbxassetid://12173268397",
+	SkyboxRt = "rbxassetid://12173273903",
+	SkyboxFt = "rbxassetid://12173272214"
 }
 local t4 = {
-        SkyboxLf = "rbxassetid://17124365127",
-        SkyboxUp = "rbxassetid://17124369657",
-        SkyboxDn = "rbxassetid://17124359797",
-        SkyboxBk = "rbxassetid://17124357467",
-        SkyboxRt = "rbxassetid://17124367200",
-        SkyboxFt = "rbxassetid://17124362093"
+	SkyboxLf = "rbxassetid://17124365127",
+	SkyboxUp = "rbxassetid://17124369657",
+	SkyboxDn = "rbxassetid://17124359797",
+	SkyboxBk = "rbxassetid://17124357467",
+	SkyboxRt = "rbxassetid://17124367200",
+	SkyboxFt = "rbxassetid://17124362093"
 }
 local t5 = {
-        SkyboxLf = "rbxassetid://154184943",
-        SkyboxUp = "rbxassetid://154185031",
-        SkyboxDn = "rbxassetid://154184960",
-        SkyboxBk = "rbxassetid://154185004",
-        SkyboxRt = "rbxassetid://154184972",
-        SkyboxFt = "rbxassetid://154185021"
+	SkyboxLf = "rbxassetid://154184943",
+	SkyboxUp = "rbxassetid://154185031",
+	SkyboxDn = "rbxassetid://154184960",
+	SkyboxBk = "rbxassetid://154185004",
+	SkyboxRt = "rbxassetid://154184972",
+	SkyboxFt = "rbxassetid://154185021"
 }
 local function skyset(id)
-        return {
-                SkyboxLf = "rbxassetid://" .. id,
-                SkyboxUp = "rbxassetid://" .. id,
-                SkyboxDn = "rbxassetid://" .. id,
-                SkyboxBk = "rbxassetid://" .. id,
-                SkyboxRt = "rbxassetid://" .. id,
-                SkyboxFt = "rbxassetid://" .. id
-        }
+	return {
+		SkyboxLf = "rbxassetid://" .. id,
+		SkyboxUp = "rbxassetid://" .. id,
+		SkyboxDn = "rbxassetid://" .. id,
+		SkyboxBk = "rbxassetid://" .. id,
+		SkyboxRt = "rbxassetid://" .. id,
+		SkyboxFt = "rbxassetid://" .. id
+	}
 end
 -- Nebula: заглушка. Вставь свой decal id вместо "0" (toolbox -> skybox -> copy asset id)
 local t6 = {
-        ["Two moon"] = t3,
-        Aurora = t4,
-        Night = t5,
-        Galaxy = skyset("159454299"),
-        ["Deep Space"] = skyset("77384233173949"),
-        Skeleton = skyset("16000894791"),
-        ["Classic Blue"] = skyset("144933338"),
-        Nebula = skyset("0"),
-        Default = nil
+	["Two moon"] = t3,
+	Aurora = t4,
+	Night = t5,
+	Galaxy = skyset("159454299"),
+	["Deep Space"] = skyset("77384233173949"),
+	Skeleton = skyset("16000894791"),
+	["Classic Blue"] = skyset("144933338"),
+	Nebula = skyset("0"),
+	Default = nil
 }
 t1.value62 = nil
 t1.value62 = t6
@@ -1684,9 +1675,9 @@ function t1.value63(p50)
     end
 end
 v19:AddDropdown({
-        Name = "Skybox",
-        Flag = "Skybox",
-        Values = {
+	Name = "Skybox",
+	Flag = "Skybox",
+	Values = {
                 "Default",
                 "Two moon",
                 "Aurora",
@@ -1697,8 +1688,8 @@ v19:AddDropdown({
                 "Classic Blue",
                 "Nebula"
         },
-        Default = "Default",
-        Callback = function(p51)
+	Default = "Default",
+	Callback = function(p51)
     t1.value63(p51)
 end
 })
@@ -1716,23 +1707,23 @@ local RunService2 = game:GetService("RunService")
 t1.value65 = 3000
 t1.value66 = 3000
 v19:AddSlider({
-        Name = "FogStart",
-        Flag = "FogStart",
-        Min = 1,
-        Max = 3000,
-        Default = 3000,
-        Callback = function(p52)
+	Name = "FogStart",
+	Flag = "FogStart",
+	Min = 1,
+	Max = 3000,
+	Default = 3000,
+	Callback = function(p52)
     t1.value65 = p52
     t1.value64.FogStart = p52
 end
 })
 v19:AddSlider({
-        Name = "FogEnd",
-        Flag = "FogEnd",
-        Min = 1,
-        Max = 3000,
-        Default = 3000,
-        Callback = function(p53)
+	Name = "FogEnd",
+	Flag = "FogEnd",
+	Min = 1,
+	Max = 3000,
+	Default = 3000,
+	Callback = function(p53)
     t1.value66 = p53
     t1.value64.FogEnd = p53
 end
@@ -1751,11 +1742,11 @@ t1.value68 = false
 t1.value69 = Color3.fromRGB(170, 170, 255)
 
 local Option5 = v19:AddToggle({
-        Name = "World",
-        Flag = "World",
-        Option = true,
-        Default = false,
-        Callback = function(p54)
+	Name = "World",
+	Flag = "World",
+	Option = true,
+	Default = false,
+	Callback = function(p54)
     t1.value68 = p54
 
     if p54 then
@@ -1772,10 +1763,10 @@ end
 local color3_7 = Color3.fromRGB(170, 170, 255)
 
 Option5:AddColorPicker({
-        Name = "World color",
-        Flag = "WorldColors",
-        Default = color3_7,
-        Callback = function(p55)
+	Name = "World color",
+	Flag = "WorldColors",
+	Default = color3_7,
+	Callback = function(p55)
     if t1.value68 then
         t1.value67.Ambient = p55
         t1.value67.OutdoorAmbient = p55
@@ -1791,7 +1782,6 @@ t1.value73 = {}
 t1.value74 = {}
 t1.value75 = {}
 t1.value75b = {}
-t1.value75c = {}
 local function v69(p57)
     if p57 == t1.value72 then
         return
@@ -1826,6 +1816,13 @@ local function v69(p57)
     drawing3.OutlineColor = Color3.new(0, 0, 0)
     t1.value75[p57] = drawing3
 
+    local fillBox = Drawing.new("Square")
+    fillBox.Visible = false
+    fillBox.Filled = true
+    fillBox.Transparency = 0.45
+    t1.valueFill = t1.valueFill or {}
+    t1.valueFill[p57] = fillBox
+
     local drawing4 = Drawing.new("Text")
 
     drawing4.Visible = false
@@ -1835,13 +1832,6 @@ local function v69(p57)
     drawing4.Outline = true
     drawing4.OutlineColor = Color3.new(0, 0, 0)
     t1.value75b[p57] = drawing4
-
-    local drawingF = Drawing.new("Square")
-
-    drawingF.Visible = false
-    drawingF.Filled = true
-    drawingF.Thickness = 1
-    t1.value75c[p57] = drawingF
 end
 local GetPlayers = Players2.GetPlayers
 Players2.PlayerRemoving:Connect(function(player)
@@ -1863,10 +1853,9 @@ Players2.PlayerRemoving:Connect(function(player)
         t1.value75b[player]:Remove()
         t1.value75b[player] = nil
     end
-
-    if t1.value75c[player] then
-        t1.value75c[player]:Remove()
-        t1.value75c[player] = nil
+    if t1.valueFill[player] then
+        t1.valueFill[player]:Remove()
+        t1.valueFill[player] = nil
     end
 end)
 
@@ -1885,6 +1874,7 @@ RunService3.RenderStepped:Connect(function()
         local v329 = t1.value75[v323]
 
         local v329b = t1.value75b[v323]
+        local vFill = t1.valueFill[v323]
         if v325 then
             v327 = v326 and v326.Health > 0
         end
@@ -1902,25 +1892,13 @@ RunService3.RenderStepped:Connect(function()
                 if v329 then
                     v329.Visible = false; if v329b then v329b.Visible = false end
                 end
+                if vFill then vFill.Visible = false end
             else
                 local v330, v331 = t1.value71:WorldToViewportPoint(v325.Position)
 
                 if v331 then
-                    -- bbox по модели: box сидит ровно на игроке, без смещения на большое расстояние
-                    local v333
-                    local okBB, bbCf, bbSz = pcall(Character.GetBoundingBox, Character)
-
-                    if okBB and bbCf and bbSz and bbSz.Y > 0 then
-                        local topS = t1.value71:WorldToViewportPoint((bbCf * CFrame.new(0, bbSz.Y / 2, 0)).Position)
-                        local botS = t1.value71:WorldToViewportPoint((bbCf * CFrame.new(0, -bbSz.Y / 2, 0)).Position)
-
-                        v333 = math.abs(topS.Y - botS.Y)
-                        v330 = Vector3.new((topS.X + botS.X) / 2, (topS.Y + botS.Y) / 2, topS.Z)
-                    else
-                        local v332 = t1.value71:WorldToViewportPoint(v325.Position + Vector3.new(0, v326.HipHeight * 2 + 3, 0))
-
-                        v333 = math.abs(t1.value71:WorldToViewportPoint(v325.Position - Vector3.new(0, v326.HipHeight * 2 + 3, 0)).Y - v332.Y)
-                    end
+                    local v332 = t1.value71:WorldToViewportPoint(v325.Position + Vector3.new(0, v326.HipHeight * 2 + 3, 0))
+                    local v333 = math.abs(t1.value71:WorldToViewportPoint(v325.Position - Vector3.new(0, v326.HipHeight * 2 + 3, 0)).Y - v332.Y)
 
                     if v333 < 6 then
                         v333 = 6
@@ -1928,35 +1906,31 @@ RunService3.RenderStepped:Connect(function()
 
                     local v334 = v333 / 2.3
 
+                    local boxPos = Vector2.new(v330.X - v334 / 2, v330.Y - v333 / 2)
+                    local boxSize = Vector2.new(v334, v333)
+
                     if _G.ESP_Box_Enabled then
-                        v.Size = Vector2.new(v334, v333)
-                        v.Position = Vector2.new(v330.X - v334 / 2, v330.Y - v333 / 2)
-                        v.Color = _G.ESP_Box_Color or Color3.new(1, 1, 1)
+                        v.Color = _G.ESP_BoxColor or Color3.new(1, 1, 1)
+                        v.Size = boxSize
+                        v.Position = boxPos
                         v.Visible = true
                     else
                         v.Visible = false
                     end
 
-                    local vF = t1.value75c[v323]
-
-                    if _G.ESP_Fill_Enabled and vF then
-                        vF.Size = Vector2.new(v334, v333)
-                        vF.Position = Vector2.new(v330.X - v334 / 2, v330.Y - v333 / 2)
-                        vF.Color = _G.ESP_Fill_Color or Color3.fromRGB(255, 255, 255)
-                        vF.Visible = true
-                    elseif vF then
-                        vF.Visible = false
+                    if _G.ESP_Fill_Enabled and vFill then
+                        vFill.Color = _G.ESP_FillColor or Color3.new(1, 1, 1)
+                        vFill.Size = boxSize
+                        vFill.Position = boxPos
+                        vFill.Visible = true
+                    elseif vFill then
+                        vFill.Visible = false
                     end
 
                     if _G.ESP_Health_Enabled then
                         local v335 = math.clamp(v326.Health / v326.MaxHealth, 0, 1)
-                        local v336 = 1 - v335
 
-                        if _G.ESP_Health_Color then
-                            v328.Color = Color3.new(1, 0, 0):Lerp(_G.ESP_Health_Color, v335)
-                        else
-                            v328.Color = Color3.new(v336, v335, 0)
-                        end
+                        v328.Color = _G.ESP_HealthColor or Color3.fromRGB(0, 255, 0)
 
                         local v337 = v333 * v335
 
@@ -1993,6 +1967,7 @@ RunService3.RenderStepped:Connect(function()
                     v.Visible = false
                     v328.Visible = false
                     v329.Visible = false; if v329b then v329b.Visible = false end
+                    if vFill then vFill.Visible = false end
                 end
             end
         else
@@ -2005,96 +1980,75 @@ RunService3.RenderStepped:Connect(function()
             if v329 then
                 v329.Visible = false; if v329b then v329b.Visible = false end
             end
+            if vFill then vFill.Visible = false end
         end
     end
 end)
-v18:AddDropdown({
-        Name = "ESP",
-        Flag = "Esp",
-        Multi = true,
-        Values = {
-                "Box",
-                "Name",
-                "Health",
-                "Distance"
-        },
-        Callback = function(p58)
-    _G.ESP_Box_Enabled = p58.Box or false
-    _G.ESP_Name_Enabled = p58.Name or false
-    _G.ESP_Health_Enabled = p58.Health or false
-    _G.ESP_Dist_Enabled = p58.Distance or false
-end
-})
-t1.value76 = game:GetService("Players")
-
 -- ============================================================
--- [ESP TAB] отдельная вкладка ESP: box, health bar, fill, цвета, team check
+-- [ESP] own tab: box/fill/health bar, each with its own color
 -- ============================================================
 do
-    -- значения по умолчанию для цветов
-    _G.ESP_Box_Color = _G.ESP_Box_Color or Color3.fromRGB(255, 255, 255)
-    _G.ESP_Health_Color = _G.ESP_Health_Color or Color3.fromRGB(0, 255, 120)
-    _G.ESP_Fill_Color = _G.ESP_Fill_Color or Color3.fromRGB(255, 255, 255)
-    _G.ESP_TeamCheck = _G.ESP_TeamCheck or false
-
-    local secE = t1.mESP:AddSection({ Position = "left", Name = "ESP" })
-    secE:AddToggle({
+    local secBox = t1.mESP:AddSection({ Position = "left", Name = "BOX" })
+    secBox:AddToggle({
         Name = "Box",
-        Flag = "ESP_BoxTab",
+        Flag = "EspBox",
         Default = false,
         Callback = function(p) _G.ESP_Box_Enabled = p end
     })
-    secE:AddToggle({
-        Name = "Health Bar",
-        Flag = "ESP_HealthTab",
-        Default = false,
-        Callback = function(p) _G.ESP_Health_Enabled = p end
+    secBox:AddColorPicker({
+        Name = "Box Color",
+        Flag = "EspBoxColor",
+        Default = Color3.new(1, 1, 1),
+        Callback = function(c) _G.ESP_BoxColor = c end
     })
-    secE:AddToggle({
+    secBox:AddToggle({
         Name = "Fill Box",
-        Flag = "ESP_Fill",
+        Flag = "EspFill",
         Default = false,
         Callback = function(p) _G.ESP_Fill_Enabled = p end
     })
-    secE:AddToggle({
+    secBox:AddColorPicker({
+        Name = "Fill Color",
+        Flag = "EspFillColor",
+        Default = Color3.new(1, 1, 1),
+        Callback = function(c) _G.ESP_FillColor = c end
+    })
+
+    local secHp = t1.mESP:AddSection({ Position = "center", Name = "HEALTH BAR" })
+    secHp:AddToggle({
+        Name = "Health Bar",
+        Flag = "EspHealth",
+        Default = false,
+        Callback = function(p) _G.ESP_Health_Enabled = p end
+    })
+    secHp:AddColorPicker({
+        Name = "Health Bar Color",
+        Flag = "EspHealthColor",
+        Default = Color3.fromRGB(0, 255, 0),
+        Callback = function(c) _G.ESP_HealthColor = c end
+    })
+
+    local secInfo = t1.mESP:AddSection({ Position = "right", Name = "INFO" })
+    secInfo:AddToggle({
         Name = "Name",
-        Flag = "ESP_NameTab",
+        Flag = "EspName",
         Default = false,
         Callback = function(p) _G.ESP_Name_Enabled = p end
     })
-    secE:AddToggle({
+    secInfo:AddToggle({
         Name = "Distance",
-        Flag = "ESP_DistTab",
+        Flag = "EspDistance",
         Default = false,
         Callback = function(p) _G.ESP_Dist_Enabled = p end
     })
-    secE:AddToggle({
-        Name = "Team Check",
-        Flag = "ESP_TeamCheck",
+    secInfo:AddToggle({
+        Name = "Team Check (hide teammates)",
+        Flag = "EspTeamCheck",
         Default = false,
         Callback = function(p) _G.ESP_TeamCheck = p end
     })
-
-    local secC = t1.mESP:AddSection({ Position = "center", Name = "COLORS" })
-    secC:AddColorPicker({
-        Name = "Box Color",
-        Flag = "ESP_BoxColor",
-        Default = Color3.fromRGB(255, 255, 255),
-        Callback = function(c) _G.ESP_Box_Color = c end
-    })
-    secC:AddColorPicker({
-        Name = "Health Bar Color",
-        Flag = "ESP_HealthColor",
-        Default = Color3.fromRGB(0, 255, 120),
-        Callback = function(c) _G.ESP_Health_Color = c end
-    })
-    secC:AddColorPicker({
-        Name = "Fill Color",
-        Flag = "ESP_FillColor",
-        Default = Color3.fromRGB(255, 255, 255),
-        Callback = function(c) _G.ESP_Fill_Color = c end
-    })
 end
+t1.value76 = game:GetService("Players")
 t1.value77 = t1.value76.LocalPlayer
 t1.value78 = t1.value1.CurrentCamera
 local RunService4 = game:GetService("RunService")
@@ -2142,22 +2096,22 @@ function t1.value84(p60)
                 local vTransparency = v.Transparency
 
                 v345[v] = {
-                                        Color = vColor,
-                                        Material = vMaterial,
-                                        Transparency = vTransparency
-                                }
+					Color = vColor,
+					Material = vMaterial,
+					Transparency = vTransparency
+				}
             elseif v:IsA("Decal") or v:IsA("Texture") then
                 t1.value82[p60][v] = {
-                                        Transparency = v.Transparency
-                                }
+					Transparency = v.Transparency
+				}
             elseif v:IsA("Shirt") or (v:IsA("Pants") or v:IsA("BodyColors")) then
                 t1.value82[p60][v] = {
-                                        Parent = v.Parent
-                                }
+					Parent = v.Parent
+				}
             elseif v:IsA("Accessory") then
                 t1.value82[p60][v] = {
-                                        Parent = v.Parent
-                                }
+					Parent = v.Parent
+				}
             end
         end
     end
@@ -2260,11 +2214,11 @@ RunService4.RenderStepped:Connect(function()
 end)
 
 local v78 = v18:AddToggle({
-        Name = "Chams",
-        Flag = "Chams",
-        Default = false,
-        Option = true,
-        Callback = function(p63)
+	Name = "Chams",
+	Flag = "Chams",
+	Default = false,
+	Option = true,
+	Callback = function(p63)
     t1.value79 = p63
 
     if p63 then
@@ -2289,10 +2243,10 @@ local AddColorPicker3 = Option6.AddColorPicker
 local color3_35 = Color3.fromRGB(170, 170, 255)
 
 AddColorPicker3(Option6, {
-        Name = "Visible",
-        Flag = "ChamsColor",
-        Default = color3_35,
-        Callback = function(p64)
+	Name = "Visible",
+	Flag = "ChamsColor",
+	Default = color3_35,
+	Callback = function(p64)
     t1.value80 = p64
 end
 })
@@ -2301,10 +2255,10 @@ local AddColorPicker4 = Option7.AddColorPicker
 local color3_36 = Color3.fromRGB(170, 100, 255)
 
 AddColorPicker4(Option7, {
-        Name = "Invisible",
-        Flag = "ThroughwallChamsColor",
-        Default = color3_36,
-        Callback = function(p65)
+	Name = "Invisible",
+	Flag = "ThroughwallChamsColor",
+	Default = color3_36,
+	Callback = function(p65)
     t1.value81 = p65
 end
 })
@@ -2357,25 +2311,25 @@ t1.value88.CharacterAdded:Connect(function(character)
     t1.value97()
 end)
 v17:AddToggle({
-        Name = "Thirdperson",
-        Flag = "Thirdperson",
-        Default = false,
-        Option = true,
-        Callback = function(p66)
+	Name = "Thirdperson",
+	Flag = "Thirdperson",
+	Default = false,
+	Option = true,
+	Callback = function(p66)
     t1.value89 = p66
     t1.value96()
 end
 }).Option:AddDropdown({
-        Name = "Activation",
-        Flag = "ThirdpersonActivation",
-        Values = {
-                "Always on",
-                "K",
-                "O",
-                "P"
-        },
-        Default = "Always on",
-        Callback = function(p67)
+	Name = "Activation",
+	Flag = "ThirdpersonActivation",
+	Values = {
+		"Always on",
+		"K",
+		"O",
+		"P"
+	},
+	Default = "Always on",
+	Callback = function(p67)
     if t1.value89 then
         if p67 == "Always on" then
             t1.value96()
@@ -2389,12 +2343,12 @@ end
 end
 })
 v17:AddSlider({
-        Name = "Distance",
-        Flag = "ThirdpersonDistance",
-        Min = 1,
-        Max = 6,
-        Default = 6,
-        Callback = function(p68)
+	Name = "Distance",
+	Flag = "ThirdpersonDistance",
+	Min = 1,
+	Max = 6,
+	Default = 6,
+	Callback = function(p68)
     t1.value90 = p68
 
     if t1.value89 then
@@ -2416,10 +2370,10 @@ end
 v88()
 t1.value99.CharacterAdded:Connect(v88)
 v17:AddToggle({
-        Name = "Yaw",
-        Flag = "Spinbot",
-        Default = false,
-        Callback = function(p69)
+	Name = "Yaw",
+	Flag = "Spinbot",
+	Default = false,
+	Callback = function(p69)
     t1.value101 = p69
 end
 })
@@ -2452,8 +2406,9 @@ local function ApplyPoseMode(char, mode, tickVal)
     if not char then return end
     local torso = char:FindFirstChild("Torso")
     local upperTorso = char:FindFirstChild("UpperTorso")
+    local lowerTorso = char:FindFirstChild("LowerTorso")
 
-    if mode ~= "Jitler" and mode ~= "Yitler" then
+    if mode ~= "Jitler" and mode ~= "Yitler" and mode ~= "Back" and mode ~= "Undo Back" then
         for motor, origC0 in pairs(OriginalJointsCache) do
             if motor and motor.Parent then
                 motor.C0 = origC0
@@ -2462,11 +2417,9 @@ local function ApplyPoseMode(char, mode, tickVal)
         return
     end
 
-    -- ноги сгибаются только в воздухе (прыжок/падение)
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local airborne = hum and (hum.FloorMaterial == Enum.Material.Air
-        or hum:GetState() == Enum.HumanoidStateType.Freefall
-        or hum:GetState() == Enum.HumanoidStateType.Jumping)
+    local jitterOsc = 0 -- Jitler/Yitler больше не трясутся, поза статична
+    local hum0 = char:FindFirstChildOfClass("Humanoid")
+    local airborne = hum0 and (hum0:GetState() == Enum.HumanoidStateType.Jumping or hum0:GetState() == Enum.HumanoidStateType.Freefall)
 
     if torso then
         -- R6 персонаж
@@ -2481,9 +2434,9 @@ local function ApplyPoseMode(char, mode, tickVal)
         end
 
         if mode == "Jitler" then
-            -- статичная поза: руки просто вверх, без тряски
+            -- руки просто вверх, без тряски
             if neck and OriginalJointsCache[neck] then
-                neck.C0 = OriginalJointsCache[neck]
+                neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(75), 0, 0)
             end
             if rShoulder and OriginalJointsCache[rShoulder] then
                 rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(0, 0, math.rad(165))
@@ -2491,12 +2444,16 @@ local function ApplyPoseMode(char, mode, tickVal)
             if lShoulder and OriginalJointsCache[lShoulder] then
                 lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(0, 0, -math.rad(165))
             end
-            if rHip and OriginalJointsCache[rHip] then rHip.C0 = OriginalJointsCache[rHip] end
-            if lHip and OriginalJointsCache[lHip] then lHip.C0 = OriginalJointsCache[lHip] end
+            if rHip and OriginalJointsCache[rHip] then
+                rHip.C0 = OriginalJointsCache[rHip]
+            end
+            if lHip and OriginalJointsCache[lHip] then
+                lHip.C0 = OriginalJointsCache[lHip]
+            end
         elseif mode == "Yitler" then
-            -- руки вверх статично, ноги сгибаются в коленях только когда прыгаешь
+            -- руки вверх как в Jitler, ноги сгибаются в коленях только в прыжке
             if neck and OriginalJointsCache[neck] then
-                neck.C0 = OriginalJointsCache[neck]
+                neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(70), 0, 0)
             end
             if rShoulder and OriginalJointsCache[rShoulder] then
                 rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(0, 0, math.rad(160))
@@ -2506,33 +2463,55 @@ local function ApplyPoseMode(char, mode, tickVal)
             end
             if airborne then
                 if rHip and OriginalJointsCache[rHip] then
-                    rHip.C0 = OriginalJointsCache[rHip] * CFrame.new(0, 0.45, -0.35) * CFrame.Angles(-math.rad(70), 0, -math.rad(30))
+                    rHip.C0 = OriginalJointsCache[rHip] * CFrame.new(0, 0.45, -0.35) * CFrame.Angles(-math.rad(55), 0, -math.rad(85))
                 end
                 if lHip and OriginalJointsCache[lHip] then
-                    lHip.C0 = OriginalJointsCache[lHip] * CFrame.new(0, 0.45, -0.35) * CFrame.Angles(-math.rad(70), 0, math.rad(30))
+                    lHip.C0 = OriginalJointsCache[lHip] * CFrame.new(0, 0.45, -0.35) * CFrame.Angles(-math.rad(55), 0, math.rad(85))
                 end
             else
                 if rHip and OriginalJointsCache[rHip] then rHip.C0 = OriginalJointsCache[rHip] end
                 if lHip and OriginalJointsCache[lHip] then lHip.C0 = OriginalJointsCache[lHip] end
             end
+
+            if mode == "Back" or mode == "Undo Back" then
+                local bend = (mode == "Undo Back") and 95 or 50
+                if neck and OriginalJointsCache[neck] then
+                    neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(bend * 0.4), 0, 0)
+                end
+                if rShoulder and OriginalJointsCache[rShoulder] then
+                    rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(-math.rad(bend), 0, math.rad(10))
+                end
+                if lShoulder and OriginalJointsCache[lShoulder] then
+                    lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(-math.rad(bend), 0, -math.rad(10))
+                end
+                if rHip and OriginalJointsCache[rHip] then
+                    rHip.C0 = OriginalJointsCache[rHip] * CFrame.Angles(math.rad(bend * 0.5), 0, math.rad(5))
+                end
+                if lHip and OriginalJointsCache[lHip] then
+                    lHip.C0 = OriginalJointsCache[lHip] * CFrame.Angles(math.rad(bend * 0.5), 0, -math.rad(5))
+                end
+            end
         end
-    elseif upperTorso then
+    elseif upperTorso and lowerTorso then
         -- R15 персонаж
         local neck = char:FindFirstChild("Head") and char.Head:FindFirstChild("Neck") or upperTorso:FindFirstChild("Neck")
         local rShoulder = char:FindFirstChild("RightUpperArm") and char.RightUpperArm:FindFirstChild("RightShoulder")
         local lShoulder = char:FindFirstChild("LeftUpperArm") and char.LeftUpperArm:FindFirstChild("LeftShoulder")
+        local rElbow = char:FindFirstChild("RightLowerArm") and char.RightLowerArm:FindFirstChild("RightElbow")
+        local lElbow = char:FindFirstChild("LeftLowerArm") and char.LeftLowerArm:FindFirstChild("LeftElbow")
         local rHip = char:FindFirstChild("RightUpperLeg") and char.RightUpperLeg:FindFirstChild("RightHip")
         local lHip = char:FindFirstChild("LeftUpperLeg") and char.LeftUpperLeg:FindFirstChild("LeftHip")
         local rKnee = char:FindFirstChild("RightLowerLeg") and char.RightLowerLeg:FindFirstChild("RightKnee")
         local lKnee = char:FindFirstChild("LeftLowerLeg") and char.LeftLowerLeg:FindFirstChild("LeftKnee")
 
-        for _, m in ipairs({neck, rShoulder, lShoulder, rHip, lHip, rKnee, lKnee}) do
+        for _, m in ipairs({neck, rShoulder, lShoulder, rElbow, lElbow, rHip, lHip, rKnee, lKnee}) do
             SaveOriginalJoint(m)
         end
 
         if mode == "Jitler" then
+            -- руки просто вверх, без тряски
             if neck and OriginalJointsCache[neck] then
-                neck.C0 = OriginalJointsCache[neck]
+                neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(math.rad(75), 0, 0)
             end
             if rShoulder and OriginalJointsCache[rShoulder] then
                 rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(math.rad(170), 0, math.rad(15))
@@ -2545,8 +2524,9 @@ local function ApplyPoseMode(char, mode, tickVal)
             if rKnee and OriginalJointsCache[rKnee] then rKnee.C0 = OriginalJointsCache[rKnee] end
             if lKnee and OriginalJointsCache[lKnee] then lKnee.C0 = OriginalJointsCache[lKnee] end
         elseif mode == "Yitler" then
+            -- руки вверх как в Jitler, ноги гнутся в коленях только пока игрок в воздухе
             if neck and OriginalJointsCache[neck] then
-                neck.C0 = OriginalJointsCache[neck]
+                neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(math.rad(75), 0, 0)
             end
             if rShoulder and OriginalJointsCache[rShoulder] then
                 rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(math.rad(165), 0, math.rad(20))
@@ -2555,7 +2535,6 @@ local function ApplyPoseMode(char, mode, tickVal)
                 lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(math.rad(165), 0, -math.rad(20))
             end
             if airborne then
-                -- сгиб ног в бедрах и коленях в воздухе
                 if rHip and OriginalJointsCache[rHip] then
                     rHip.C0 = OriginalJointsCache[rHip] * CFrame.Angles(math.rad(65), 0, math.rad(10))
                 end
@@ -2574,76 +2553,31 @@ local function ApplyPoseMode(char, mode, tickVal)
                 if rKnee and OriginalJointsCache[rKnee] then rKnee.C0 = OriginalJointsCache[rKnee] end
                 if lKnee and OriginalJointsCache[lKnee] then lKnee.C0 = OriginalJointsCache[lKnee] end
             end
-        end
-    end
-end
 
--- прогиб спины для Undo Back: применяется только на время разворота (~1.2 с)
-local function ApplyBendPose(char, bend)
-    if not char then return end
-    local torso = char:FindFirstChild("Torso")
-
-    if torso then
-        local neck = torso:FindFirstChild("Neck")
-        local rShoulder = torso:FindFirstChild("Right Shoulder")
-        local lShoulder = torso:FindFirstChild("Left Shoulder")
-        local rHip = torso:FindFirstChild("Right Hip")
-        local lHip = torso:FindFirstChild("Left Hip")
-
-        for _, m in ipairs({neck, rShoulder, lShoulder, rHip, lHip}) do
-            SaveOriginalJoint(m)
-        end
-
-        if neck and OriginalJointsCache[neck] then
-            neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(bend * 0.4), 0, 0)
-        end
-        if rShoulder and OriginalJointsCache[rShoulder] then
-            rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(-math.rad(bend), 0, math.rad(10))
-        end
-        if lShoulder and OriginalJointsCache[lShoulder] then
-            lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(-math.rad(bend), 0, -math.rad(10))
-        end
-        if rHip and OriginalJointsCache[rHip] then
-            rHip.C0 = OriginalJointsCache[rHip] * CFrame.Angles(math.rad(bend * 0.5), 0, math.rad(5))
-        end
-        if lHip and OriginalJointsCache[lHip] then
-            lHip.C0 = OriginalJointsCache[lHip] * CFrame.Angles(math.rad(bend * 0.5), 0, -math.rad(5))
-        end
-    else
-        local upperTorso = char:FindFirstChild("UpperTorso")
-        if not upperTorso then return end
-        local neck = char:FindFirstChild("Head") and char.Head:FindFirstChild("Neck") or upperTorso:FindFirstChild("Neck")
-        local rShoulder = char:FindFirstChild("RightUpperArm") and char.RightUpperArm:FindFirstChild("RightShoulder")
-        local lShoulder = char:FindFirstChild("LeftUpperArm") and char.LeftUpperArm:FindFirstChild("LeftShoulder")
-        local rHip = char:FindFirstChild("RightUpperLeg") and char.RightUpperLeg:FindFirstChild("RightHip")
-        local lHip = char:FindFirstChild("LeftUpperLeg") and char.LeftUpperLeg:FindFirstChild("LeftHip")
-        local rKnee = char:FindFirstChild("RightLowerLeg") and char.RightLowerLeg:FindFirstChild("RightKnee")
-        local lKnee = char:FindFirstChild("LeftLowerLeg") and char.LeftLowerLeg:FindFirstChild("LeftKnee")
-
-        for _, m in ipairs({neck, rShoulder, lShoulder, rHip, lHip, rKnee, lKnee}) do
-            SaveOriginalJoint(m)
-        end
-
-        if neck and OriginalJointsCache[neck] then
-            neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(bend * 0.4), 0, 0)
-        end
-        if rShoulder and OriginalJointsCache[rShoulder] then
-            rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(-math.rad(bend), 0, math.rad(10))
-        end
-        if lShoulder and OriginalJointsCache[lShoulder] then
-            lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(-math.rad(bend), 0, -math.rad(10))
-        end
-        if rHip and OriginalJointsCache[rHip] then
-            rHip.C0 = OriginalJointsCache[rHip] * CFrame.Angles(math.rad(bend * 0.5), 0, math.rad(5))
-        end
-        if lHip and OriginalJointsCache[lHip] then
-            lHip.C0 = OriginalJointsCache[lHip] * CFrame.Angles(math.rad(bend * 0.5), 0, -math.rad(5))
-        end
-        if rKnee and OriginalJointsCache[rKnee] then
-            rKnee.C0 = OriginalJointsCache[rKnee] * CFrame.Angles(math.rad(bend * 0.4), 0, 0)
-        end
-        if lKnee and OriginalJointsCache[lKnee] then
-            lKnee.C0 = OriginalJointsCache[lKnee] * CFrame.Angles(math.rad(bend * 0.4), 0, 0)
+            if mode == "Back" or mode == "Undo Back" then
+                local bend = (mode == "Undo Back") and 95 or 50
+                if neck and OriginalJointsCache[neck] then
+                    neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(bend * 0.4), 0, 0)
+                end
+                if rShoulder and OriginalJointsCache[rShoulder] then
+                    rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(-math.rad(bend), 0, math.rad(10))
+                end
+                if lShoulder and OriginalJointsCache[lShoulder] then
+                    lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(-math.rad(bend), 0, -math.rad(10))
+                end
+                if rHip and OriginalJointsCache[rHip] then
+                    rHip.C0 = OriginalJointsCache[rHip] * CFrame.Angles(math.rad(bend * 0.5), 0, math.rad(5))
+                end
+                if lHip and OriginalJointsCache[lHip] then
+                    lHip.C0 = OriginalJointsCache[lHip] * CFrame.Angles(math.rad(bend * 0.5), 0, -math.rad(5))
+                end
+                if rKnee and OriginalJointsCache[rKnee] then
+                    rKnee.C0 = OriginalJointsCache[rKnee] * CFrame.Angles(math.rad(bend * 0.4), 0, 0)
+                end
+                if lKnee and OriginalJointsCache[lKnee] then
+                    lKnee.C0 = OriginalJointsCache[lKnee] * CFrame.Angles(math.rad(bend * 0.4), 0, 0)
+                end
+            end
         end
     end
 end
@@ -2652,8 +2586,6 @@ end
 -- [SPIN] section (MOVEMENT tab): mode picker is always visible
 -- modes: Basic Spin, Jitler, Yitler, Sway, Static Jitter
 -- ============================================================
-local LastDeathPos = nil
-local UndoUntil = 0 -- one-shot: разворот к убитому держится ~1.2 с, потом снимается
 do
     local sec = t1.mMove:AddSection({ Position = "center", Name = "SPIN" })
     local modes = { "Basic Spin", "Jitler", "Yitler", "Sway", "Static Jitter", "Undo", "Back", "Undo Back" }
@@ -2680,11 +2612,19 @@ do
         Callback = function(val)
             getgenv().SpinMode = val
             restore()
-            -- при выборе Undo-режима сразу показываем разворот, если есть последняя смерть
-            if (val == "Undo" or val == "Back" or val == "Undo Back") and LastDeathPos then
-                UndoUntil = tick() + 1.2
+            if val == "Undo" or val == "Back" or val == "Undo Back" then
+                t1.UndoStart = tick()
+            else
+                t1.UndoStart = nil
             end
         end
+    })
+    sec:AddSlider({
+        Name = "Undo/Back Duration (s)",
+        Flag = "UndoDuration",
+        Min = 1, Max = 10,
+        Default = math.clamp(getgenv().UndoDuration, 1, 10),
+        Callback = function(val) getgenv().UndoDuration = val end
     })
     sec:AddSlider({
         Name = "Speed",
@@ -2709,8 +2649,8 @@ do
     })
 end
 
--- kill tracker для Undo / Back / Undo Back: запоминаем, где умер последний убитый
--- LastDeathPos / UndoUntil объявлены выше, перед SPIN-секцией
+-- kill tracker для Back / Undo Back: запоминаем, где умер последний убитый
+local LastDeathPos = nil
 do
     local PlayersT = game:GetService("Players")
     local function hookPlayer(pl)
@@ -2722,7 +2662,6 @@ do
                     local root = c and (c:FindFirstChild("HumanoidRootPart") or c.PrimaryPart)
                     if root then
                         LastDeathPos = root.Position
-                        UndoUntil = tick() + 1.2
                     end
                 end)
             end
@@ -2739,7 +2678,6 @@ do
     t1.value1.ChildAdded:Connect(function(child)
         if child.Name == "deadbody" then
             LastDeathPos = child:GetPivot().Position
-            UndoUntil = tick() + 1.2
         end
     end)
 end
@@ -2755,32 +2693,37 @@ RunService5.RenderStepped:Connect(function(dt)
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum or hum.Health <= 0 then return end
 
+    -- Undo / Back / Undo Back: держатся UndoDuration секунд, затем сами отключаются
+    if t1.UndoStart and (getgenv().SpinMode == "Undo" or getgenv().SpinMode == "Back" or getgenv().SpinMode == "Undo Back")
+        and tick() - t1.UndoStart >= (getgenv().UndoDuration or 2) then
+        getgenv().SpinMode = "Basic Spin"
+        getgenv().SpinEnabled = false
+        t1.UndoStart = nil
+        for motor, origC0 in pairs(OriginalJointsCache) do
+            if motor and motor.Parent then motor.C0 = origC0 end
+        end
+        hum.AutoRotate = true
+        return
+    end
+
     hum.AutoRotate = false
     local spinMode0 = getgenv().SpinMode
-    if spinMode0 == "Undo" or spinMode0 == "Back" or spinMode0 == "Undo Back" then
-        -- one-shot: спин идёт как обычно; после килла (или выбора режима)
-        -- разворачивается к убитому на ~1.2 секунды, потом снимается сам
-        local speed = getgenv().SpinSpeed or 25
-        currentSpinYaw = (currentSpinYaw + speed * dt * 25) % 360
-
-        if UndoUntil and tick() < UndoUntil and LastDeathPos then
+    if spinMode0 == "Back" or spinMode0 == "Undo Back" then
+        -- разворот тела в сторону последнего убитого
+        if LastDeathPos then
             local flat = Vector3.new(LastDeathPos.X - hrp.Position.X, 0, LastDeathPos.Z - hrp.Position.Z)
             if flat.Magnitude > 0.5 then
-                local look = CFrame.lookAt(hrp.Position, hrp.Position + flat)
-                if spinMode0 == "Undo" then
-                    hrp.CFrame = look * CFrame.Angles(math.rad(30), 0, 0)
-                else
-                    hrp.CFrame = look
+                hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + flat)
+            end
+        end
+        if spinMode0 == "Undo Back" then
+            ApplyPoseMode(char, "Undo Back", tick())
+        else
+            for motor, origC0 in pairs(OriginalJointsCache) do
+                if motor and motor.Parent then
+                    motor.C0 = origC0
                 end
             end
-            if spinMode0 == "Undo Back" then
-                ApplyBendPose(char, 95)
-            else
-                RestoreCharacterJoints(char)
-            end
-        else
-            hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, math.rad(currentSpinYaw), math.rad(getgenv().SpinDesyncRoll or 0))
-            RestoreCharacterJoints(char)
         end
         return
     end
@@ -2805,7 +2748,11 @@ RunService5.RenderStepped:Connect(function(dt)
     end
 
     local pos = hrp.Position
-    hrp.CFrame = CFrame.new(pos) * CFrame.Angles(0, finalYaw, math.rad(rollDeg))
+    if mode == "Undo" then
+        hrp.CFrame = CFrame.new(pos) * CFrame.Angles(0, finalYaw, 0) * CFrame.Angles(math.rad(30), 0, 0)
+    else
+        hrp.CFrame = CFrame.new(pos) * CFrame.Angles(0, finalYaw, math.rad(rollDeg))
+    end
 
     ApplyPoseMode(char, mode, tick())
 end)
@@ -2871,10 +2818,10 @@ end)
 t1.value104 = game:GetService("Players").LocalPlayer
 t1.value105 = false
 v17:AddToggle({
-        Name = "Hide head",
-        Flag = "Hide head",
-        Default = false,
-        Callback = function(p70)
+	Name = "Hide head",
+	Flag = "Hide head",
+	Default = false,
+	Callback = function(p70)
     t1.value105 = p70
 
     local Character = t1.value104.Character
@@ -2934,10 +2881,10 @@ t1.value109 = t1.value106.CameraMinZoomDistance
 t1.value110 = t1.value106.CameraMaxZoomDistance
 t1.value111 = false
 v17:AddToggle({
-        Name = "No scope zoom",
-        Flag = "Noscopezoom",
-        Default = false,
-        Callback = function(p71)
+	Name = "No scope zoom",
+	Flag = "Noscopezoom",
+	Default = false,
+	Callback = function(p71)
     t1.value111 = p71
 
     if not p71 then
@@ -3070,36 +3017,36 @@ bhopToggleUI.Option:AddSlider({
 })
 
 v20:AddToggle({
-        Name = "Automatic jump",
-        Flag = "AutoJump",
-        Default = false,
-        Callback = function(p72)
+	Name = "Automatic jump",
+	Flag = "AutoJump",
+	Default = false,
+	Callback = function(p72)
     getgenv().AutoJumpEnabled = p72
 end
 })
 v20:AddToggle({
-        Name = "Auto Strafe",
-        Flag = "AirStrafe",
-        Default = false,
-        Callback = function(p73)
+	Name = "Auto Strafe",
+	Flag = "AirStrafe",
+	Default = false,
+	Callback = function(p73)
     getgenv().AirStrafeEnabled = p73
 end
 })
 v20:AddSlider({
-        Name = "Smoothing",
-        Flag = "SmoothingStrafe",
-        Min = 1,
-        Max = 100,
-        Default = 20,
-        Callback = function(p74)
+	Name = "Smoothing",
+	Flag = "SmoothingStrafe",
+	Min = 1,
+	Max = 100,
+	Default = 20,
+	Callback = function(p74)
     getgenv().AirStrafeStrength = p74
 end
 })
 v20:AddToggle({
-        Name = "Quick Stop",
-        Flag = "QuickStop",
-        Default = false,
-        Callback = function(p75)
+	Name = "Quick Stop",
+	Flag = "QuickStop",
+	Default = false,
+	Callback = function(p75)
     getgenv().QuickStopEnabled = p75
 end
 })
@@ -3214,10 +3161,10 @@ local CharacterAdded = LocalPlayer.CharacterAdded
 local AddToggle4 = v17.AddToggle
 CharacterAdded:Connect(v93)
 AddToggle4(v17, {
-        Name = "Dynamic camera",
-        Flag = "CameraSway",
-        Default = false,
-        Callback = function(p77)
+	Name = "Dynamic camera",
+	Flag = "CameraSway",
+	Default = false,
+	Callback = function(p77)
     local Players7 = game:GetService("Players")
     local RunService7 = game:GetService("RunService")
     local UserInputService2 = game:GetService("UserInputService")
@@ -3260,11 +3207,11 @@ AddToggle4(v17, {
 end
 })
 local Option8 = v18:AddToggle({
-        Name = "Soul particles",
-        Flag = "SoulParticles",
-        Option = true,
-        Default = false,
-        Callback = function(p81)
+	Name = "Soul particles",
+	Flag = "SoulParticles",
+	Option = true,
+	Default = false,
+	Callback = function(p81)
     local Workspace = game:GetService("Workspace")
     local t8 = {}
     local t9 = {}
@@ -3292,15 +3239,15 @@ local Option8 = v18:AddToggle({
                 ParticleEmitter.Speed = NumberRange.new(1, 3)
                 ParticleEmitter.Lifetime = NumberRange.new(2, 3)
                 ParticleEmitter.Size = NumberSequence.new({
-                                                NumberSequenceKeypoint.new(0, 0.2),
-                                                NumberSequenceKeypoint.new(0.5, 0.3),
-                                                NumberSequenceKeypoint.new(1, 0.2)
-                                        })
+						NumberSequenceKeypoint.new(0, 0.2),
+						NumberSequenceKeypoint.new(0.5, 0.3),
+						NumberSequenceKeypoint.new(1, 0.2)
+					})
                 ParticleEmitter.Color = ColorSequence.new({
-                                                ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 100, 255)),
-                                                ColorSequenceKeypoint.new(0.8, _G.SoulParticleColor),
-                                                ColorSequenceKeypoint.new(1, _G.SoulParticleColor)
-                                        })
+						ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 100, 255)),
+						ColorSequenceKeypoint.new(0.8, _G.SoulParticleColor),
+						ColorSequenceKeypoint.new(1, _G.SoulParticleColor)
+					})
                 ParticleEmitter.EmissionDirection = Enum.NormalId.Top
                 ParticleEmitter.SpreadAngle = Vector2.new(360, 360)
                 ParticleEmitter.Parent = descendant
@@ -3348,20 +3295,20 @@ end
 local color3_37 = Color3.fromRGB(150, 0, 255)
 
 Option8:AddColorPicker({
-        Name = "Color",
-        Flag = "ColorSoul",
-        Default = color3_37,
-        Callback = function(p83)
+	Name = "Color",
+	Flag = "ColorSoul",
+	Default = color3_37,
+	Callback = function(p83)
     _G.SoulParticleColor = p83
 
     if _G.SoulParticleEmitters then
         for _, v in ipairs(_G.SoulParticleEmitters) do
             if v and v.Parent then
                 v.Color = ColorSequence.new({
-                                                ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 100, 255)),
-                                                ColorSequenceKeypoint.new(0.8, p83),
-                                                ColorSequenceKeypoint.new(1, p83)
-                                        })
+						ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 100, 255)),
+						ColorSequenceKeypoint.new(0.8, p83),
+						ColorSequenceKeypoint.new(1, p83)
+					})
             end
         end
     end
@@ -3402,9 +3349,9 @@ function t1.value119(p85)
 
     raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
     raycastParams.FilterDescendantsInstances = {
-                t1.value116.Character,
-                t1.value115
-        }
+		t1.value116.Character,
+		t1.value115
+	}
 
     local raycastResult = t1.value114:Raycast(CFramePosition, v440, raycastParams)
 
@@ -3422,11 +3369,11 @@ function t1.value120(p86)
     local vector2 = Vector2.new(t1.value115.ViewportSize.X / 2, t1.value115.ViewportSize.Y / 2)
 
     for _, v in ipairs({
-                "Head",
-                "UpperTorso",
-                "Torso",
-                "HumanoidRootPart"
-        }) do
+		"Head",
+		"UpperTorso",
+		"Torso",
+		"HumanoidRootPart"
+	}) do
         local v3 = p86:FindFirstChild(v)
 
         if not v3 then
@@ -3538,10 +3485,10 @@ LocalPlayer3.CharacterAdded:Connect(function(character)
     end)
 end)
 v20:AddToggle({
-        Name = "Auto move",
-        Flag = "AutoMove",
-        Default = false,
-        Callback = function(p90)
+	Name = "Auto move",
+	Flag = "AutoMove",
+	Default = false,
+	Callback = function(p90)
     t1.value123 = p90
 end
 })
@@ -3572,198 +3519,263 @@ v21:AddToggle({
     end
 })
 
-getgenv().BulletTrailsEnabled = getgenv().BulletTrailsEnabled or false
-getgenv().BulletTrailColor = getgenv().BulletTrailColor or Color3.fromRGB(205, 50, 255)
-getgenv().BulletTrailStyle = getgenv().BulletTrailStyle or "Classic"
+getgenv().BulletTrailsEnabled = false
+getgenv().BulletTrailColor = Color3.fromRGB(205, 50, 255)
 
-local TrailFolder = Instance.new("Folder")
-TrailFolder.Name = "LesxovBulletEffects"
-TrailFolder.Parent = workspace
-local TrailPieces = {}
-local MAX_TRAIL_PIECES = 350
+local TrailsList = {}
+local TRAIL_MODELS = {
+    "Default", "Thunder", "Arrow", "Thick Beam", "Dotted", "Helix",
+    "DNA", "Sparks", "Rainbow", "Fire", "Rings", "Glitch"
+}
+getgenv().BulletTrailModel = getgenv().BulletTrailModel or "Default"
 
-local function trailPiece(a, b, color, width, lifetime, shape)
-    local length = (b - a).Magnitude
-    if length < 0.025 then return end
+local function trailPart(size, cf, color, life, base, ball)
     local part = Instance.new("Part")
-    part.Name = "BulletTrailFX"
     part.Anchored = true
     part.CanCollide = false
-    part.CanTouch = false
     part.CanQuery = false
+    part.CanTouch = false
     part.CastShadow = false
     part.Material = Enum.Material.Neon
     part.Color = color
-    part.Shape = shape or Enum.PartType.Block
-    part.Size = Vector3.new(width, width, length)
-    part.CFrame = CFrame.lookAt((a + b) / 2, b)
-    part.Parent = TrailFolder
-    table.insert(TrailPieces, {Part = part, Life = lifetime, MaxLife = lifetime})
-    while #TrailPieces > MAX_TRAIL_PIECES do
-        local old = table.remove(TrailPieces, 1)
-        if old.Part then old.Part:Destroy() end
+    part.Size = size
+    part.CFrame = cf
+    if ball then part.Shape = Enum.PartType.Ball end
+    part.Transparency = base or 0
+    part.Parent = t1.value1
+    TrailsList[#TrailsList + 1] = { Part = part, Life = life, Max = life, Base = base or 0 }
+    while #TrailsList > 700 do
+        pcall(function() TrailsList[1].Part:Destroy() end)
+        table.remove(TrailsList, 1)
     end
+    return part
 end
 
-local function CreateBulletTrail(a, b, color)
-    local diff = b - a
-    local dist = diff.Magnitude
-    if dist < 0.12 then return end
-    local direction = diff.Unit
-    local style = getgenv().BulletTrailStyle or "Classic"
-    if style == "Thunder" then
-        local side = direction:Cross(Vector3.yAxis)
-        if side.Magnitude < 0.1 then side = direction:Cross(Vector3.xAxis) end
-        side = side.Unit
-        local up = direction:Cross(side).Unit
-        local previous = a
-        local steps = math.clamp(math.ceil(dist / 1.8), 3, 12)
-        for i = 1, steps do
-            local nextPos = a + diff * (i / steps)
-            if i < steps then
-                nextPos += side * (math.random() - 0.5) * 0.8
-                    + up * (math.random() - 0.5) * 0.8
+local function trailSeg(a, b, w, color, life, base)
+    local len = (a - b).Magnitude
+    if len < 0.01 then return end
+    return trailPart(Vector3.new(w, w, len), CFrame.new(a, b) * CFrame.new(0, 0, -len / 2), color, life, base)
+end
+
+local function trailBall(pos, size, color, life, base)
+    return trailPart(Vector3.new(size, size, size), CFrame.new(pos), color, life, base, true)
+end
+
+local trailFrame = 0
+local function CreateBulletTrail(startPos, endPos, color)
+    local len = (endPos - startPos).Magnitude
+    if len < 0.01 then return end
+    local model = getgenv().BulletTrailModel
+    local cf = CFrame.new(startPos, endPos)
+    local dir, right, up = cf.LookVector, cf.RightVector, cf.UpVector
+    local rnd = math.random
+    trailFrame += 1
+
+    if model == "Thunder" then
+        local n = math.max(2, math.floor(len / 1.5))
+        local prev = startPos
+        for i = 1, n do
+            local p = startPos:Lerp(endPos, i / n)
+            if i < n then
+                p = p + right * (rnd() - 0.5) * 1.4 + up * (rnd() - 0.5) * 1.4
             end
-            trailPiece(previous, nextPos, color, 0.13, 0.45)
-            previous = nextPos
+            trailSeg(prev, p, 0.28, color, 0.35, 0.6)
+            trailSeg(prev, p, 0.08, Color3.new(1, 1, 1), 0.35)
+            prev = p
         end
-    elseif style == "Arrow" then
-        trailPiece(a, b, color, 0.09, 0.8)
-        local headLength = math.min(dist * 0.4, 1.2)
-        local side = direction:Cross(Vector3.yAxis)
-        if side.Magnitude < 0.1 then side = direction:Cross(Vector3.xAxis) end
-        side = side.Unit
-        local up = direction:Cross(side).Unit
-        local base = b - direction * headLength
-        trailPiece(b, base + side * headLength * 0.45, color, 0.14, 0.8)
-        trailPiece(b, base - side * headLength * 0.45, color, 0.14, 0.8)
-        trailPiece(b, base + up * headLength * 0.45, color, 0.14, 0.8)
-        trailPiece(b, base - up * headLength * 0.45, color, 0.14, 0.8)
-    elseif style == "Comet" then
-        trailPiece(a, b, color, 0.22, 0.65, Enum.PartType.Cylinder)
-        trailPiece(b - direction * math.min(0.4, dist), b, Color3.new(1,1,1), 0.35, 0.65, Enum.PartType.Ball)
-    elseif style == "Laser" then
-        trailPiece(a, b, color, 0.22, 0.95)
-        trailPiece(a, b, Color3.new(1,1,1), 0.055, 0.95)
-    elseif style == "Spiral" then
-        local side = direction:Cross(Vector3.yAxis)
-        if side.Magnitude < 0.1 then side = direction:Cross(Vector3.xAxis) end
-        side = side.Unit
-        local up = direction:Cross(side).Unit
-        local steps = math.clamp(math.ceil(dist * 3), 4, 22)
-        local previous = a
-        for i = 1, steps do
-            local t = i / steps
-            local angle = t * math.pi * 6
-            local offset = (side * math.cos(angle) + up * math.sin(angle)) * 0.28 * math.sin(t * math.pi)
-            local nextPos = a + diff * t + offset
-            trailPiece(previous, nextPos, color, 0.1, 0.9)
-            previous = nextPos
+    elseif model == "Arrow" then
+        trailSeg(startPos, endPos, 0.05, color, 0.9)
+        if len > 0.3 then
+            local back = -dir * 0.8
+            for _, side in ipairs({ right, -right, up, -up }) do
+                trailSeg(endPos, endPos + back + side * 0.35, 0.06, color, 0.9)
+            end
         end
-    elseif style == "Dashed" then
-        local steps = math.clamp(math.ceil(dist / 1.1), 1, 18)
-        for i = 0, steps - 1 do
-            trailPiece(a + diff * ((i + 0.1) / steps),
-                a + diff * ((i + 0.65) / steps), color, 0.12, 0.75)
+    elseif model == "Thick Beam" then
+        trailSeg(startPos, endPos, 0.35, color, 1.0, 0.45)
+        trailSeg(startPos, endPos, 0.12, Color3.new(1, 1, 1), 1.0)
+    elseif model == "Dotted" then
+        trailBall(endPos, 0.32, color, 1.4)
+    elseif model == "Helix" then
+        local a = os.clock() * 25
+        local off = right * math.cos(a) * 0.7 + up * math.sin(a) * 0.7
+        trailBall(endPos + off, 0.2, color, 1.2)
+    elseif model == "DNA" then
+        local a = os.clock() * 22
+        local off = right * math.cos(a) * 0.7 + up * math.sin(a) * 0.7
+        local inv = Color3.new(1 - color.R, 1 - color.G, 1 - color.B)
+        trailBall(endPos + off, 0.22, color, 1.2)
+        trailBall(endPos - off, 0.22, inv, 1.2)
+        if trailFrame % 2 == 0 then
+            trailSeg(endPos + off, endPos - off, 0.04, Color3.new(1, 1, 1), 1.0, 0.3)
         end
+    elseif model == "Sparks" then
+        for _ = 1, 4 do
+            local v = Vector3.new(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5) * 1.2
+            trailBall(endPos + v, 0.12, rnd() > 0.5 and color or Color3.new(1, 1, 1), 0.5)
+        end
+        trailSeg(startPos, endPos, 0.04, color, 0.5)
+    elseif model == "Rainbow" then
+        trailSeg(startPos, endPos, 0.12, Color3.fromHSV((os.clock() * 0.8) % 1, 1, 1), 1.5)
+    elseif model == "Fire" then
+        local j = Vector3.new(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5) * 0.3
+        trailSeg(startPos + j, endPos + j, 0.2, Color3.fromRGB(255, 90, 0), 0.7, 0.35)
+        trailSeg(startPos, endPos, 0.07, Color3.fromRGB(255, 220, 80), 0.7)
+        trailBall(endPos + Vector3.new(0, rnd() * 0.6, 0) + j, 0.14, Color3.fromRGB(255, 150, 20), 0.6)
+    elseif model == "Rings" then
+        if trailFrame % 2 == 0 then
+            trailPart(Vector3.new(0.05, 1.3, 1.3), CFrame.new(endPos, endPos + dir) * CFrame.Angles(0, math.rad(90), 0),
+                color, 0.8, 0.3).Shape = Enum.PartType.Cylinder
+        end
+        trailSeg(startPos, endPos, 0.04, color, 0.8)
+    elseif model == "Glitch" then
+        for _ = 1, 3 do
+            local v = Vector3.new(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5) * 1.0
+            local sz = 0.1 + rnd() * 0.3
+            trailPart(Vector3.new(sz, sz, sz * (1 + rnd() * 3)), CFrame.new(endPos + v, endPos + v + dir),
+                rnd() > 0.5 and color or Color3.fromHSV(rnd(), 1, 1), 0.4)
+        end
+        trailSeg(startPos, endPos, 0.05, color, 0.4)
     else
-        trailPiece(a, b, color, 0.07, 1.2)
+        trailSeg(startPos, endPos, 0.06, color, 1.5)
     end
 end
 
 RunService.RenderStepped:Connect(function(dt)
-    for i = #TrailPieces, 1, -1 do
-        local effect = TrailPieces[i]
-        effect.Life -= dt
-        if effect.Life <= 0 or not effect.Part.Parent then
-            effect.Part:Destroy()
-            table.remove(TrailPieces, i)
+    for i = #TrailsList, 1, -1 do
+        local t = TrailsList[i]
+        t.Life = t.Life - dt
+
+        if t.Life <= 0 or not t.Part.Parent then
+            pcall(function()
+                t.Part:Destroy()
+            end)
+            table.remove(TrailsList, i)
         else
-            effect.Part.Transparency = math.clamp(1 - effect.Life / effect.MaxLife, 0, 1)
+            t.Part.Transparency = t.Base + (1 - t.Base) * (1 - t.Life / t.Max)
         end
     end
 end)
 
--- Draw from the game's actual firing event rather than waiting for
--- bulletStorage, which may never receive physical projectiles.
-renderShotTrail = function(data)
-    local origin = data.Origin
-    local direction = data.Direction
-    if typeof(origin) ~= "Vector3" or typeof(direction) ~= "Vector3" or direction.Magnitude < 0.001 then
-        return
-    end
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    local ignore = {TrailFolder}
-    if t1.value8.Character then table.insert(ignore, t1.value8.Character) end
-    params.FilterDescendantsInstances = ignore
-    local distance = 180
-    local hit = workspace:Raycast(origin, direction.Unit * distance, params)
-    local endpoint = hit and hit.Position or (origin + direction.Unit * distance)
-    CreateBulletTrail(origin, endpoint, getgenv().BulletTrailColor)
-end
+local bulletStorage = t1.value1:FindFirstChild("bulletStorage") or Instance.new("Folder", t1.value1)
+bulletStorage.Name = "bulletStorage"
+
+bulletStorage.ChildAdded:Connect(function(child)
+    if not getgenv().BulletTrailsEnabled then return end
+    if not child:IsA("BasePart") then return end
+    
+    local startPos = child.Position
+    local connection
+    
+    connection = RunService.RenderStepped:Connect(function()
+        if child and child.Parent then
+            local endPos = child.Position
+            CreateBulletTrail(startPos, endPos, getgenv().BulletTrailColor)
+            startPos = endPos
+        else
+            connection:Disconnect()
+        end
+    end)
+end)
 
 v18:AddToggle({
     Name = "Bullet Trails",
     Flag = "BulletTrails",
-    Default = getgenv().BulletTrailsEnabled,
-    Callback = function(value)
-        getgenv().BulletTrailsEnabled = value
+    Default = false,
+    Callback = function(p)
+        getgenv().BulletTrailsEnabled = p
     end
 })
-v18:AddDropdown({
-    Name = "Trail Model",
-    Flag = "BulletTrailStyle",
-    Values = {"Classic", "Thunder", "Arrow", "Comet", "Laser", "Spiral", "Dashed"},
-    Default = getgenv().BulletTrailStyle,
-    Callback = function(value)
-        getgenv().BulletTrailStyle = value
-    end
-})
+
 v18:AddColorPicker({
     Name = "Trail Color",
     Flag = "BulletTrailColor",
-    Default = getgenv().BulletTrailColor,
-    Callback = function(value)
-        getgenv().BulletTrailColor = value
+    Default = Color3.fromRGB(205, 50, 255),
+    Callback = function(p)
+        getgenv().BulletTrailColor = p
+    end
+})
+
+v18:AddDropdown({
+    Name = "Trail Model",
+    Flag = "BulletTrailModel",
+    Values = TRAIL_MODELS,
+    Default = getgenv().BulletTrailModel,
+    Callback = function(p)
+        getgenv().BulletTrailModel = p
     end
 })
 
 
 -- ============================================================
--- [FIRE RATE] зажал ЛКМ — стреляет с кастомным темпом через тот же
--- FireWeapon-сигнал, что и авто-стрельба раги
+-- [NO RELOAD] держит патроны на максимуме (best effort)
+-- ищет Int/NumberValue и атрибуты с ammo/mag/clip/bullet/round в оружии,
+-- на персонаже, в Backpack и на игроке. если счётчик патронов лежит в
+-- памяти модуля, а не в инстансах — в консоли будет [NoReload] 0 tracked
 -- ============================================================
 do
-    local UIS_FR = game:GetService("UserInputService")
+    local pats = { "ammo", "mag", "clip", "bullet", "round" }
+    local function isAmmo(n)
+        n = n:lower()
+        for _, w in ipairs(pats) do
+            if n:find(w, 1, true) then return true end
+        end
+        return false
+    end
 
-    local secFR = t1.mMisc:AddSection({ Position = "center", Name = "FIRE RATE" })
-    secFR:AddToggle({
-        Name = "Fire Rate Changer",
-        Flag = "FireRateEnabled",
-        Default = getgenv().FireRateEnabled,
-        Callback = function(p) getgenv().FireRateEnabled = p end
-    })
-    secFR:AddSlider({
-        Name = "Rate Multiplier",
-        Flag = "FireRateMult",
-        Min = 1, Max = 10,
-        Default = math.clamp(getgenv().FireRateMult, 1, 10),
-        Callback = function(p) getgenv().FireRateMult = p end
+    local maxVal = setmetatable({}, { __mode = "k" })
+    local maxAttr = setmetatable({}, { __mode = "k" })
+    local tracked = 0
+
+    local function keep(inst)
+        if (inst:IsA("IntValue") or inst:IsA("NumberValue")) and isAmmo(inst.Name) then
+            local m = maxVal[inst]
+            if not m then tracked += 1 end
+            if not m or inst.Value > m then m = inst.Value end
+            maxVal[inst] = m
+            if inst.Value < m then inst.Value = m end
+        end
+        local am = maxAttr[inst]
+        for name, v in pairs(inst:GetAttributes()) do
+            if type(v) == "number" and isAmmo(name) then
+                if not am then am = {}; maxAttr[inst] = am end
+                if not am[name] then tracked += 1 end
+                if not am[name] or v > am[name] then am[name] = v end
+                if v < am[name] then inst:SetAttribute(name, am[name]) end
+            end
+        end
+    end
+
+    local function sweep(root)
+        if not root then return end
+        keep(root)
+        for _, d in ipairs(root:GetDescendants()) do keep(d) end
+    end
+
+    local secNR = t1.mMisc:AddSection({ Position = "center", Name = "NO RELOAD" })
+    secNR:AddToggle({
+        Name = "No Reload (infinite ammo)",
+        Flag = "NoReloadEnabled",
+        Default = getgenv().NoReloadEnabled,
+        Callback = function(p)
+            getgenv().NoReloadEnabled = p
+            if p then
+                task.delay(1, function()
+                    print("[NoReload] " .. tracked .. " tracked")
+                end)
+            end
+        end
     })
 
     task.spawn(function()
-        while true do
-            local g = getgenv()
-            if g.FireRateEnabled and UIS_FR:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
-                and not (g.RageBotEnabled and g.RageBotAutoFire) then
-                local interval = math.clamp(0.1 / math.max(g.FireRateMult or 2, 0.1), 0.02, 1)
-                SignalManager.Fire("FireWeapon", Enum.UserInputState.Begin)
-                task.wait(interval * 0.4)
-                SignalManager.Fire("FireWeapon", Enum.UserInputState.End)
-                task.wait(interval * 0.6)
-            else
-                task.wait(0.05)
+        while task.wait(0.05) do
+            if getgenv().NoReloadEnabled then
+                local lp = t1.value8
+                pcall(function()
+                    sweep(lp.Character)
+                    sweep(lp:FindFirstChildOfClass("Backpack"))
+                    keep(lp)
+                end)
             end
         end
     end)
