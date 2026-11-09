@@ -1006,8 +1006,8 @@ function PulseAim.update(dt)
             or hum:GetState() == Enum.HumanoidStateType.Freefall
     end
     local goal = moving and hi or lo
-    -- Oscillation continues while moving and standing, independently of movement transition.
-    if g.PulseAimOscillate then
+    -- Pulse only during movement/jumping; while idle FOV settles at minimum.
+    if moving and g.PulseAimOscillate then
         local amplitude = math.min(tonumber(g.PulseAimOscAmplitude) or 5, (hi-lo)/2)
         local speed = math.max(0, tonumber(g.PulseAimOscSpeed) or 1.5)
         local center = moving and (hi-amplitude) or (lo+amplitude)
@@ -1411,7 +1411,7 @@ do
         Callback=function(v) g.PulseAimSpeed=v/10 end})
     sec:AddSlider({Name="Movement threshold (x0.1)", Flag="PulseAimThresholdSlider", Min=1, Max=100, Default=math.floor(g.PulseAimMoveThreshold*10+0.5),
         Callback=function(v) g.PulseAimMoveThreshold=v/10 end})
-    sec:AddToggle({Name="Continuous pulse (even while moving)", Flag="PulseAimOscillate", Default=g.PulseAimOscillate,
+    sec:AddToggle({Name="Pulse while moving (idle stays still)", Flag="PulseAimOscillate", Default=g.PulseAimOscillate,
         Callback=function(v) g.PulseAimOscillate=v end})
     sec:AddSlider({Name="Pulse amplitude (degrees)", Flag="PulseAimOscAmplitude", Min=0, Max=30, Default=g.PulseAimOscAmplitude,
         Callback=function(v) g.PulseAimOscAmplitude=v end})
