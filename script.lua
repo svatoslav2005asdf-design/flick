@@ -489,6 +489,7 @@ do
         _sig = nil,
         Keys = {
             "SilentAim", "SilentAimTarget", "SilentAimFOVEnabled", "SilentAimFOV",
+            "PulseAimEnabled", "PulseAimMinFOV", "PulseAimMaxFOV", "PulseAimSmoothness", "PulseAimSpeed", "PulseAimMoveThreshold", "PulseAimColorHex", "PulseAimRainbow", "PulseAimShowCircle",
             "RageBotEnabled", "RageBotHitbox", "RageBotAutoFire",
             "AttackIntervalEnabled", "AttackInterval", "AttackHold", "AttackJitter",
             "PenetrationEnabled", "PenetrationMax",
@@ -829,6 +830,14 @@ do
 end
 getgenv().ThemeHue = getgenv().ThemeHue or 330
 getgenv().ThemeSat = getgenv().ThemeSat or 70
+-- Pulse Aim defaults (initialized before config startup loading)
+do
+    local g = getgenv()
+    local d = { PulseAimEnabled=false, PulseAimMinFOV=8, PulseAimMaxFOV=55,
+        PulseAimSmoothness=8, PulseAimSpeed=1, PulseAimMoveThreshold=1.5,
+        PulseAimColorHex="B46CFF", PulseAimRainbow=false, PulseAimShowCircle=true }
+    for k,v in pairs(d) do if g[k] == nil then g[k]=v end end
+end
 t1.Cfg.init()
 
 local cam = t1.value6.CurrentCamera
@@ -976,11 +985,37 @@ do
     end
 end
 
+-- Pulse Aim: movement-sensitive angular FOV, shared by targeting and visual ring.
+local PulseAim = { current = nil }
+t1.PulseAim = PulseAim
+function PulseAim.update(dt)
+    local g = getgenv()
+    local lo = math.clamp(tonumber(g.PulseAimMinFOV) or 8, 1, 89)
+    local hi = math.clamp(tonumber(g.PulseAimMaxFOV) or 55, lo, 89)
+    local char = t1.value8.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local moving = false
+    if hum and root then
+        local v = root.AssemblyLinearVelocity
+        local horizontal = Vector3.new(v.X, 0, v.Z).Magnitude
+        moving = horizontal >= (tonumber(g.PulseAimMoveThreshold) or 1.5)
+            or hum.MoveDirection.Magnitude > 0.08
+            or hum:GetState() == Enum.HumanoidStateType.Jumping
+            or hum:GetState() == Enum.HumanoidStateType.Freefall
+    end
+    local goal = moving and hi or lo
+    if PulseAim.current == nil then PulseAim.current = goal end
+    local rate = math.max(0.1, (tonumber(g.PulseAimSmoothness) or 8) * (tonumber(g.PulseAimSpeed) or 1))
+    PulseAim.current += (goal - PulseAim.current) * (1 - math.exp(-rate * math.clamp(dt or 0,0,0.2)))
+    return PulseAim.current
+end
+
 local function isInFOV(targetPart)
-    if not getgenv().SilentAimFOVEnabled then return true end
+    if not (getgenv().SilentAimFOVEnabled or getgenv().PulseAimEnabled) then return true end
     
     local cam = t1.value6.CurrentCamera
-    local fovRadius = getgenv().SilentAimFOV or 50
+    local fovRadius = getgenv().PulseAimEnabled and (PulseAim.current or getgenv().PulseAimMinFOV) or (getgenv().SilentAimFOV or 50)
     local dir = (targetPart.Position - cam.CFrame.Position).Unit
     local angle = math.acos(math.clamp(cam.CFrame.LookVector:Dot(dir), -1, 1))
     local deg = math.deg(angle)
@@ -988,7 +1023,7 @@ local function isInFOV(targetPart)
 end
 
 local function getSilentAimTarget()
-    if not getgenv().SilentAim then return nil end
+    if not (getgenv().SilentAim or getgenv().PulseAimEnabled) then return nil end
     
     local closest = nil
     local closestDist = math.huge
@@ -1029,7 +1064,7 @@ BulletHandler.Fire = function(data)
     local shouldChange = false
     local target = nil
     
-    if getgenv().SilentAim then
+    if getgenv().SilentAim or getgenv().PulseAimEnabled then
         target = getSilentAimTarget()
         if target then
             shouldChange = true
@@ -1352,6 +1387,33 @@ v16:AddSlider({
     end
 })
 
+-- Pulse Aim controls: changes both the silent-aim targeting cone and its indicator.
+do
+    local g = getgenv()
+    local sec = v15:AddSection({ Position="left", Name="PULSE AIM" })
+    sec:AddToggle({Name="Pulse Aim", Flag="PulseAimEnabled", Default=g.PulseAimEnabled,
+        Callback=function(v) g.PulseAimEnabled=v; PulseAim.current=nil end})
+    sec:AddSlider({Name="Minimum FOV (degrees)", Flag="PulseAimMinFOV", Min=1, Max=89, Default=g.PulseAimMinFOV,
+        Callback=function(v) g.PulseAimMinFOV=v; if g.PulseAimMaxFOV<v then g.PulseAimMaxFOV=v end end})
+    sec:AddSlider({Name="Maximum FOV (degrees)", Flag="PulseAimMaxFOV", Min=1, Max=89, Default=g.PulseAimMaxFOV,
+        Callback=function(v) g.PulseAimMaxFOV=v end})
+    sec:AddSlider({Name="Smoothness", Flag="PulseAimSmoothness", Min=1, Max=30, Default=g.PulseAimSmoothness,
+        Callback=function(v) g.PulseAimSmoothness=v end})
+    sec:AddSlider({Name="Transition speed (x0.1)", Flag="PulseAimSpeedSlider", Min=1, Max=30, Default=math.floor(g.PulseAimSpeed*10+0.5),
+        Callback=function(v) g.PulseAimSpeed=v/10 end})
+    sec:AddSlider({Name="Movement threshold (x0.1)", Flag="PulseAimThresholdSlider", Min=1, Max=100, Default=math.floor(g.PulseAimMoveThreshold*10+0.5),
+        Callback=function(v) g.PulseAimMoveThreshold=v/10 end})
+    sec:AddToggle({Name="Show Pulse FOV", Flag="PulseAimShowCircle", Default=g.PulseAimShowCircle,
+        Callback=function(v) g.PulseAimShowCircle=v end})
+    sec:AddToggle({Name="Rainbow Pulse", Flag="PulseAimRainbow", Default=g.PulseAimRainbow,
+        Callback=function(v) g.PulseAimRainbow=v end})
+    local h = g.PulseAimColorHex
+    local n = tonumber(h,16) or 0xB46CFF
+    sec:AddColorPicker({Name="Pulse Color", Flag="PulseAimColorPicker",
+        Default=Color3.fromRGB(math.floor(n/65536)%256, math.floor(n/256)%256, n%256),
+        Callback=function(c) g.PulseAimColorHex=string.format("%02X%02X%02X",math.floor(c.R*255+0.5),math.floor(c.G*255+0.5),math.floor(c.B*255+0.5)) end})
+end
+
 local PlayerGui = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
 local fovScreenGui = Instance.new("ScreenGui")
@@ -1391,25 +1453,37 @@ uiGradient.Color = ColorSequence.new{
 
 local rotationSpeed = 0.3
 
-local function updateFOVCircle()
-    -- показывает круг либо silent aim FOV, либо wallbang FOV (что сейчас активно)
-    local silentOn = getgenv().SilentAimFOVEnabled and getgenv().SilentAim
-    local wallbangOn = getgenv().WallbangEnabled
-    local radius = getgenv().SilentAimFOV or 50
-    if not silentOn and wallbangOn then
-        -- wallbang FOV в градусах -> пиксели экрана
-        local c = workspace.CurrentCamera
-        local deg = math.clamp(getgenv().WallbangFOV or 30, 1, 89)
-        radius = math.tan(math.rad(deg)) / math.tan(math.rad(c.FieldOfView / 2)) * (c.ViewportSize.Y / 2)
-        radius = math.clamp(radius, 5, 2000)
+local function updateFOVCircle(dt)
+    local g = getgenv()
+    local pulseOn = g.PulseAimEnabled
+    local silentOn = g.SilentAimFOVEnabled and g.SilentAim
+    local wallbangOn = g.WallbangEnabled
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+    local radius = g.SilentAimFOV or 50
+    if pulseOn then
+        local deg = PulseAim.update(dt)
+        radius = math.tan(math.rad(math.min(deg, 89))) / math.tan(math.rad(camera.FieldOfView / 2)) * (camera.ViewportSize.Y / 2)
+        local n = tonumber(g.PulseAimColorHex,16) or 0xB46CFF
+        uiStroke.Color = g.PulseAimRainbow and Color3.fromHSV((os.clock()*0.2)%1,1,1)
+            or Color3.fromRGB(math.floor(n/65536)%256,math.floor(n/256)%256,n%256)
+        uiGradient.Color = ColorSequence.new(uiStroke.Color)
+    elseif not silentOn and wallbangOn then
+        local deg = math.clamp(g.WallbangFOV or 30, 1, 89)
+        radius = math.tan(math.rad(deg)) / math.tan(math.rad(camera.FieldOfView / 2)) * (camera.ViewportSize.Y / 2)
+    else
+        uiStroke.Color = Color3.new(1,1,1)
+        uiGradient.Color = ColorSequence.new{ColorSequenceKeypoint.new(0,Color3.new(0,0,0)),ColorSequenceKeypoint.new(0.5,Color3.new(1,1,1)),ColorSequenceKeypoint.new(1,Color3.new(0,0,0))}
     end
-    fovCircleFrame.Size = UDim2.new(0, radius * 2, 0, radius * 2)
-    fovCircleFrame.Visible = silentOn or wallbangOn
+    radius = math.clamp(radius, 5, 3000)
+    fovCircleFrame.Size = UDim2.fromOffset(radius*2, radius*2)
+    fovCircleFrame.Visible = (pulseOn and g.PulseAimShowCircle) or (not pulseOn and (silentOn or wallbangOn))
 end
 
-RunService.RenderStepped:Connect(function()
-    uiGradient.Rotation = uiGradient.Rotation + rotationSpeed
-    updateFOVCircle()
+RunService.RenderStepped:Connect(function(dt)
+    uiGradient.Rotation += rotationSpeed
+    if getgenv().PulseAimEnabled and not getgenv().SilentAim then PulseAim.update(dt) end
+    updateFOVCircle(dt)
 end)
 
 t1.value14 = game:GetService("Players")
@@ -4613,7 +4687,7 @@ do
             makeTrail(root,Vector3.zero,width,style)
         end
     end
-    local sec = t1.mVisuals:AddSection({ Position = "right", Name = "CHARACTER TRAILS" })
+    local sec = t1.mFx:AddSection({ Position = "right", Name = "CHARACTER TRAILS" })
     sec:AddToggle({Name="Character Trails",Flag="CharacterTrailsEnabled",Default=g.CharacterTrailsEnabled,
         Callback=function(v) g.CharacterTrailsEnabled=v;rebuild() end})
     sec:AddDropdown({Name="Trail Style",Flag="CharacterTrailStyle",Values=styles,Default=g.CharacterTrailStyle,
