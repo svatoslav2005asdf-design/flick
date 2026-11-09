@@ -139,7 +139,7 @@ local v15 = mkMenu("AIM", "crosshair")
 t1.mVisuals = mkMenu("VISUALS", "eye")
 t1.mMove = mkMenu("MOVEMENT", "move")
 t1.mMisc = mkMenu("MISC", "layers")
-t1.mESP = mkMenu("ESP", "target")
+t1.mFx = mkMenu("EFFECTS", "sparkles")
 local vSettings = mkMenu("SETTINGS", "cog")
 
 local v16 = v15:AddSection({
@@ -190,11 +190,19 @@ do
             "AttackIntervalEnabled", "AttackInterval", "AttackHold", "AttackJitter",
             "PenetrationEnabled", "PenetrationMax",
             "RageMagEnabled", "WallbangEnabled", "WallbangAutoFire", "WallbangFOV", "NoReloadEnabled",
-            "GodModeEnabled", "CrosshairEnabled", "CrosshairSize", "CrosshairGap",
+            "GodModeEnabled",
             "SkinEnabled", "SkinName", "SnowStyle",
             "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll", "UndoDuration",
             "BulletTrailsEnabled", "BulletTrailModel", "BulletTrailLife",
             "Theme", "ThemeHue", "ThemeSat",
+            "GunSoundEnabled", "GunSoundType", "GunSoundVolume",
+            "EspEnabled", "EspBoxType", "EspFill", "EspFillAlpha", "EspOutline", "EspThickness", "EspHealth",
+            "EspHealthGradient", "EspName", "EspDist", "EspTracers", "EspTracerFrom", "EspSkeleton", "EspTeamCheck",
+            "KillFxEnabled", "KillFxName", "KillFxColorHex", "HatEnabled", "HatDetail", "HatSize", "HatHeight",
+            "HatAlpha", "HatRotate", "HatRainbow", "HatColorHex", "JumpFxEnabled", "JumpShape", "JumpOnJump",
+            "JumpOnLand", "JumpSize", "JumpDur", "JumpColorHex",
+            "EspMaxDist", "EspBoxColorHex", "EspFillColorHex", "EspHealthColorHex", "EspNameColorHex",
+            "EspDistColorHex", "EspSkelColorHex", "EspTracerColorHex",
         },
     }
 
@@ -418,9 +426,6 @@ getgenv().WallbangAutoFire = false
 getgenv().WallbangFOV = 30
 getgenv().NoReloadEnabled = false
 getgenv().GodModeEnabled = false
-getgenv().CrosshairEnabled = false
-getgenv().CrosshairSize = 12
-getgenv().CrosshairGap = 4
 getgenv().SkinEnabled = false
 getgenv().SkinName = "Random"
 getgenv().SnowStyle = "Realistic"
@@ -428,6 +433,29 @@ getgenv().BulletTrailsEnabled = getgenv().BulletTrailsEnabled or false
 getgenv().BulletTrailModel = getgenv().BulletTrailModel or "Default"
 getgenv().BulletTrailLife = getgenv().BulletTrailLife or 15
 getgenv().Theme = getgenv().Theme or "Default"
+do
+    local e, d = getgenv(), {
+        KillFxEnabled = false, KillFxName = "Lightning", KillFxColorHex = "78BEFF",
+        HatEnabled = false, HatDetail = "Simple", HatSize = 3, HatHeight = 0, HatAlpha = 60, HatRotate = false,
+        HatRainbow = false, HatColorHex = "FF4D6D",
+        JumpFxEnabled = false, JumpShape = "Circle", JumpOnJump = true, JumpOnLand = true, JumpSize = 6, JumpDur = 8,
+        JumpColorHex = "FF4D6D",
+    }
+    for k, v in pairs(d) do if e[k] == nil then e[k] = v end end
+end
+do
+    local e, d = getgenv(), {
+        EspEnabled = false, EspBoxType = "2D", EspFill = false, EspFillAlpha = 25, EspOutline = true,
+        EspThickness = 1, EspHealth = false, EspHealthGradient = true, EspName = false, EspDist = false,
+        EspTracers = false, EspTracerFrom = "Bottom", EspSkeleton = false, EspTeamCheck = false, EspMaxDist = 1500,
+        EspBoxColorHex = "FFFFFF", EspFillColorHex = "FF4D6D", EspHealthColorHex = "00FF78",
+        EspNameColorHex = "FFFFFF", EspDistColorHex = "C8C8FF", EspSkelColorHex = "FFFFFF", EspTracerColorHex = "FF4D6D",
+    }
+    for k, v in pairs(d) do if e[k] == nil then e[k] = v end end
+end
+if getgenv().GunSoundEnabled == nil then getgenv().GunSoundEnabled = false end
+getgenv().GunSoundType = getgenv().GunSoundType or "Default"
+getgenv().GunSoundVolume = getgenv().GunSoundVolume or 50
 getgenv().ThemeHue = getgenv().ThemeHue or 330
 getgenv().ThemeSat = getgenv().ThemeSat or 70
 t1.Cfg.init()
@@ -625,6 +653,7 @@ local function getSilentAimTarget()
 end
 
 BulletHandler.Fire = function(data)
+    t1.lastFire = os.clock()
     local shouldChange = false
     local target = nil
     
@@ -1040,53 +1069,166 @@ t1.value19.CharacterAdded:Connect(v33)
 
 t1.value32 = nil
 t1.value33 = {}
-v21:AddToggle({
-	Name = "Custom gun sound",
-	Flag = "CustomGunSound",
-	Default = false,
-	Callback = function(p23)
-    local s1 = "rbxassetid://2476571739"
-    local function v198(p24)
-        if p24:IsA("Sound") and p24.Name == "GunShot" then
-            if not t1.value33[p24] then
-                t1.value33[p24] = p24.SoundId
-            end
+-- ============================================================
+-- [CUSTOM GUN SOUND]
+-- раньше менялся SoundId у всех GunShot в игре: звук перезагружался в момент
+-- выстрела (отсюда задержка и промахи рейдж бота), а при выключении все
+-- звуки возвращались разом (оглушительный шум). теперь SoundId НЕ трогаем:
+-- оригинал глушится через SoundGroup (громкость 0), а наш звук играется
+-- отдельным Sound в момент выстрела. выключение просто возвращает SoundGroup.
+-- ID взяты из открытых списков и не проверены: мёртвый ID = тишина, тогда
+-- включение откатывается и оригинал остаётся (см. уведомление).
+-- ============================================================
+do
+    local SoundService = game:GetService("SoundService")
+    local ContentProvider = game:GetService("ContentProvider")
+    local Debris = game:GetService("Debris")
 
-            local Model = p24:FindFirstAncestorWhichIsA("Model")
+    local GUN_SOUNDS = {
+        ["Default"] = "rbxassetid://2476571739",
+        ["Sniper"] = "rbxassetid://138854039966754",
+        ["Gunshot"] = "rbxassetid://127646504338729",
+        ["Shotgun"] = "rbxassetid://9077115754",
+        ["Boom Headshot"] = "rbxassetid://7361085557",
+        ["Realistic Rifle"] = "rbxassetid://92011177452282",
+        ["Rifle 2021"] = "rbxassetid://6862108495",
+        ["Colt Commando"] = "rbxassetid://6523957098",
+        ["Gunshot SFX"] = "rbxassetid://6656835390",
+        ["Gun Shot"] = "rbxassetid://1905367471",
+        ["AWP"] = "rbxassetid://1868836",
+    }
+    local GUN_ORDER = { "Default", "Sniper", "Gunshot", "Shotgun", "Boom Headshot", "Realistic Rifle",
+        "Rifle 2021", "Colt Commando", "Gunshot SFX", "Gun Shot", "AWP" }
 
-            if p23 then
-                if Model and Model.Name == "Revolver" then
-                    p24.SoundId = "rbxassetid://18302097184"
+    local muteGroup = Instance.new("SoundGroup")
+    muteGroup.Name = "\0g"
+    muteGroup.Volume = 0
+    muteGroup.Parent = SoundService
 
-                    return
-                end
+    local tracked = {} -- [sound] = { group, conns }
+    local active = false
+    local addConn
 
-                p24.SoundId = s1
+    local function soundId(sound)
+        local choice = getgenv().GunSoundType or "Default"
+        if choice == "Default" then
+            local model = sound:FindFirstAncestorWhichIsA("Model")
+            if model and model.Name == "Revolver" then return "rbxassetid://18302097184" end
+        end
+        return GUN_SOUNDS[choice] or GUN_SOUNDS.Default
+    end
 
-                return
-            end
+    local function playCustom(sound)
+        if not active then return end
+        local s = Instance.new("Sound")
+        s.SoundId = soundId(sound)
+        s.Volume = (getgenv().GunSoundVolume or 50) / 100 * 2
+        s.RollOffMaxDistance = 600
+        local par = sound.Parent
+        if par and (par:IsA("BasePart") or par:IsA("Attachment")) then
+            s.Parent = par
+        else
+            s.Parent = SoundService
+        end
+        s:Play()
+        Debris:AddItem(s, 5)
+    end
 
-            if t1.value33[p24] then
-                p24.SoundId = t1.value33[p24]
+    local function attach(sound)
+        if tracked[sound] or not sound:IsA("Sound") or sound.Name ~= "GunShot" then return end
+        local rec = { group = sound.SoundGroup, conns = {} }
+        tracked[sound] = rec
+        sound.SoundGroup = muteGroup
+        rec.conns[#rec.conns + 1] = sound.Played:Connect(function() playCustom(sound) end)
+        if sound.PlayOnRemove then
+            rec.conns[#rec.conns + 1] = sound.Destroying:Connect(function() playCustom(sound) end)
+        end
+        if sound.IsPlaying then playCustom(sound) end
+    end
+
+    local function detachAll()
+        for sound, rec in pairs(tracked) do
+            for _, c in ipairs(rec.conns) do c:Disconnect() end
+            if sound.Parent then pcall(function() sound.SoundGroup = rec.group end) end
+        end
+        table.clear(tracked)
+        if addConn then addConn:Disconnect() addConn = nil end
+    end
+
+    local function enable()
+        active = true
+        for _, d in ipairs(workspace:GetDescendants()) do
+            if d:IsA("Sound") then attach(d) end
+        end
+        local bp = t1.value8:FindFirstChildOfClass("Backpack")
+        if bp then
+            for _, d in ipairs(bp:GetDescendants()) do
+                if d:IsA("Sound") then attach(d) end
             end
         end
-    end
-    for v201, v202 in pairs(game:GetDescendants()) do
-
-        v198(v202)
-    end
-    if p23 then
-        t1.value32 = game.DescendantAdded:Connect(function(descendant)
-            v198(descendant)
+        addConn = workspace.DescendantAdded:Connect(function(d)
+            if d:IsA("Sound") then attach(d) end
         end)
+    end
 
-        return
+    local function disable()
+        active = false
+        detachAll()
     end
-    if t1.value32 then
-        t1.value32:Disconnect()
+
+    -- проверка, что ID вообще грузится; иначе не глушим оригинал
+    local function verify(cb)
+        task.spawn(function()
+            local id = GUN_SOUNDS[getgenv().GunSoundType or "Default"] or GUN_SOUNDS.Default
+            local t = Instance.new("Sound")
+            t.SoundId = id
+            pcall(function() ContentProvider:PreloadAsync({ t }) end)
+            local ok = t.TimeLength > 0
+            t:Destroy()
+            cb(ok)
+        end)
     end
+
+    local function apply()
+        disable()
+        if not getgenv().GunSoundEnabled then return end
+        verify(function(ok)
+            if not getgenv().GunSoundEnabled then return end
+            if ok then
+                enable()
+            else
+                v11:Notify({ Title = "GUN SOUND", Content = "sound failed to load, original kept (pick another)", Icon = "x" })
+            end
+        end)
+    end
+
+    v21:AddToggle({
+        Name = "Custom gun sound",
+        Flag = "CustomGunSound",
+        Default = getgenv().GunSoundEnabled,
+        Callback = function(p)
+            getgenv().GunSoundEnabled = p
+            apply()
+        end
+    })
+    v21:AddDropdown({
+        Name = "Gun sound",
+        Flag = "GunSoundType",
+        Values = GUN_ORDER,
+        Default = getgenv().GunSoundType,
+        Callback = function(p)
+            getgenv().GunSoundType = p
+            if getgenv().GunSoundEnabled then apply() end
+        end
+    })
+    v21:AddSlider({
+        Name = "Gun volume",
+        Flag = "GunSoundVolume",
+        Min = 0, Max = 100,
+        Default = math.clamp(getgenv().GunSoundVolume, 0, 100),
+        Callback = function(p) getgenv().GunSoundVolume = p end
+    })
 end
-})
 t1.value34 = game:GetService("Players").LocalPlayer
 t1.value35 = {
 	Crit = "rbxassetid://138705939667182",
@@ -1846,280 +1988,322 @@ Option5:AddColorPicker({
     end
 end
 })
-local Players2 = game:GetService("Players")
-local RunService3 = game:GetService("RunService")
+-- ============================================================
+-- [ESP] Drawing API: 2D box / corners / 3D box, fill, health bar, name,
+-- distance, skeleton, tracers. у каждого элемента свой цвет.
+-- ============================================================
+do
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local lp = Players.LocalPlayer
+    local env = getgenv()
+    local BLACK = Color3.new(0, 0, 0)
 
-t1.value71 = t1.value1.CurrentCamera
-t1.value72 = Players2.LocalPlayer
-t1.value73 = {}
-t1.value74 = {}
-t1.value75 = {}
-t1.value75b = {}
-local function v69(p57)
-    if p57 == t1.value72 then
-        return
+    local function toHex(c)
+        return string.format("%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
+    end
+    local function fromHex(h, fallback)
+        if type(h) ~= "string" or #h ~= 6 then return fallback end
+        local r, g, b = tonumber(h:sub(1, 2), 16), tonumber(h:sub(3, 4), 16), tonumber(h:sub(5, 6), 16)
+        if not (r and g and b) then return fallback end
+        return Color3.fromRGB(r, g, b)
     end
 
-    if t1.value73[p57] then
-        return
+    local col = {
+        box = fromHex(env.EspBoxColorHex, Color3.fromRGB(255, 255, 255)),
+        fill = fromHex(env.EspFillColorHex, Color3.fromRGB(255, 77, 109)),
+        health = fromHex(env.EspHealthColorHex, Color3.fromRGB(0, 255, 120)),
+        name = fromHex(env.EspNameColorHex, Color3.fromRGB(255, 255, 255)),
+        dist = fromHex(env.EspDistColorHex, Color3.fromRGB(200, 200, 255)),
+        skel = fromHex(env.EspSkelColorHex, Color3.fromRGB(255, 255, 255)),
+        tracer = fromHex(env.EspTracerColorHex, Color3.fromRGB(255, 77, 109)),
+    }
+
+    local function new(class, props)
+        local d = Drawing.new(class)
+        for k, v in pairs(props) do d[k] = v end
+        return d
     end
 
-    local drawing = Drawing.new("Square")
-
-    drawing.Visible = false
-    drawing.Color = Color3.new(1, 1, 1)
-    drawing.Thickness = 1
-    drawing.Filled = false
-    t1.value73[p57] = drawing
-
-    local drawing2 = Drawing.new("Square")
-
-    drawing2.Visible = false
-    drawing2.Filled = true
-    drawing2.Thickness = 1
-    t1.value74[p57] = drawing2
-
-    local drawing3 = Drawing.new("Text")
-
-    drawing3.Visible = false
-    drawing3.Color = Color3.new(1, 1, 1)
-    drawing3.Size = 8
-    drawing3.Center = true
-    drawing3.Outline = true
-    drawing3.OutlineColor = Color3.new(0, 0, 0)
-    t1.value75[p57] = drawing3
-
-    local fillBox = Drawing.new("Square")
-    fillBox.Visible = false
-    fillBox.Filled = true
-    fillBox.Transparency = 0.45
-    t1.valueFill = t1.valueFill or {}
-    t1.valueFill[p57] = fillBox
-
-    local drawing4 = Drawing.new("Text")
-
-    drawing4.Visible = false
-    drawing4.Color = Color3.new(1, 1, 1)
-    drawing4.Size = 8
-    drawing4.Center = true
-    drawing4.Outline = true
-    drawing4.OutlineColor = Color3.new(0, 0, 0)
-    t1.value75b[p57] = drawing4
-end
-local GetPlayers = Players2.GetPlayers
-Players2.PlayerRemoving:Connect(function(player)
-    if t1.value73[player] then
-        t1.value73[player]:Remove()
-        t1.value73[player] = nil
+    local objs = {}
+    local function make()
+        local o = {
+            boxOut = new("Square", { Thickness = 3, Filled = false, Color = BLACK, Visible = false }),
+            box = new("Square", { Thickness = 1, Filled = false, Visible = false }),
+            fill = new("Square", { Filled = true, Visible = false }),
+            hpBg = new("Square", { Filled = true, Color = BLACK, Transparency = 0.7, Visible = false }),
+            hp = new("Square", { Filled = true, Visible = false }),
+            name = new("Text", { Size = 13, Center = true, Outline = true, Visible = false }),
+            dist = new("Text", { Size = 12, Center = true, Outline = true, Visible = false }),
+            tracer = new("Line", { Thickness = 1, Visible = false }),
+            corners = {}, cornersOut = {}, cube = {}, bones = {},
+        }
+        pcall(function() o.name.Font = 2; o.dist.Font = 2 end)
+        for i = 1, 8 do
+            o.cornersOut[i] = new("Line", { Thickness = 3, Color = BLACK, Visible = false })
+            o.corners[i] = new("Line", { Thickness = 1, Visible = false })
+        end
+        for i = 1, 12 do o.cube[i] = new("Line", { Thickness = 1, Visible = false }) end
+        for i = 1, 14 do o.bones[i] = new("Line", { Thickness = 1, Visible = false }) end
+        return o
     end
 
-    if t1.value74[player] then
-        t1.value74[player]:Remove()
-        t1.value74[player] = nil
+    local function eachDrawing(o, fn)
+        for k, v in pairs(o) do
+            if type(v) == "table" and v.Remove == nil then
+                for _, d in ipairs(v) do fn(d) end
+            else
+                fn(v)
+            end
+        end
     end
+    local function hide(o) eachDrawing(o, function(d) d.Visible = false end) end
 
-    if t1.value75[player] then
-        t1.value75[player]:Remove()
-        t1.value75[player] = nil
-    end
-    if t1.value75b[player] then
-        t1.value75b[player]:Remove()
-        t1.value75b[player] = nil
-    end
-    if t1.valueFill[player] then
-        t1.valueFill[player]:Remove()
-        t1.valueFill[player] = nil
-    end
-end)
+    Players.PlayerRemoving:Connect(function(pl)
+        local o = objs[pl]
+        if o then
+            eachDrawing(o, function(d) pcall(function() d:Remove() end) end)
+            objs[pl] = nil
+        end
+    end)
 
-for _, v in ipairs(GetPlayers(Players2)) do
-    v69(v)
-end
-Players2.PlayerAdded:Connect(v69)
-RunService3.RenderStepped:Connect(function()
-    for k, v in pairs(t1.value73) do
-        local v323 = k
-        local Character = v323.Character
-        local v325 = Character and Character:FindFirstChild("HumanoidRootPart")
-        local v326 = Character and Character:FindFirstChild("Humanoid")
-        local v327 = v325
-        local v328 = t1.value74[v323]
-        local v329 = t1.value75[v323]
+    local R15 = {
+        { "Head", "UpperTorso" }, { "UpperTorso", "LowerTorso" },
+        { "UpperTorso", "LeftUpperArm" }, { "LeftUpperArm", "LeftLowerArm" }, { "LeftLowerArm", "LeftHand" },
+        { "UpperTorso", "RightUpperArm" }, { "RightUpperArm", "RightLowerArm" }, { "RightLowerArm", "RightHand" },
+        { "LowerTorso", "LeftUpperLeg" }, { "LeftUpperLeg", "LeftLowerLeg" }, { "LeftLowerLeg", "LeftFoot" },
+        { "LowerTorso", "RightUpperLeg" }, { "RightUpperLeg", "RightLowerLeg" }, { "RightLowerLeg", "RightFoot" },
+    }
+    local R6 = {
+        { "Head", "Torso" }, { "Torso", "Left Arm" }, { "Torso", "Right Arm" },
+        { "Torso", "Left Leg" }, { "Torso", "Right Leg" },
+    }
+    local CUBE_EDGES = {
+        { 1, 2 }, { 2, 4 }, { 4, 3 }, { 3, 1 }, { 5, 6 }, { 6, 8 }, { 8, 7 }, { 7, 5 },
+        { 1, 5 }, { 2, 6 }, { 3, 7 }, { 4, 8 },
+    }
 
-        local v329b = t1.value75b[v323]
-        local vFill = t1.valueFill[v323]
-        if v325 then
-            v327 = v326 and v326.Health > 0
+    local function render(cam, vp, player, o)
+        local char = player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local head = char and char:FindFirstChild("Head")
+        if not (hum and hrp and head) or hum.Health <= 0 then return hide(o) end
+        if env.EspTeamCheck and player.Team ~= nil and lp.Team ~= nil and player.Team == lp.Team then return hide(o) end
+
+        local c3, onScreen = cam:WorldToViewportPoint(hrp.Position)
+        if c3.Z <= 0 then return hide(o) end
+        local dist = (cam.CFrame.Position - hrp.Position).Magnitude
+        if dist > (env.EspMaxDist or 1500) then return hide(o) end
+
+        local top = cam:WorldToViewportPoint(head.Position + Vector3.new(0, head.Size.Y / 2 + 0.15, 0))
+        local bot = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3.1, 0))
+        local h = math.abs(bot.Y - top.Y)
+        if h < 2 then return hide(o) end
+        local w = h * 0.55
+        local cx = c3.X
+        local x, y = cx - w / 2, top.Y
+
+        local boxType = env.EspBoxType or "2D"
+        local outline = env.EspOutline ~= false
+        local thick = env.EspThickness or 1
+
+        -- 2D box
+        local show2d = boxType == "2D"
+        o.boxOut.Visible = show2d and outline
+        o.box.Visible = show2d
+        if show2d then
+            o.boxOut.Position, o.boxOut.Size = Vector2.new(x, y), Vector2.new(w, h)
+            o.boxOut.Thickness = thick + 2
+            o.box.Position, o.box.Size = Vector2.new(x, y), Vector2.new(w, h)
+            o.box.Thickness = thick
+            o.box.Color = col.box
         end
 
-        if v327 then
-            if _G.ESP_TeamCheck and (v323.Team ~= nil and t1.value72.Team ~= nil) and v323.Team == t1.value72.Team then
-                if v then
-                    v.Visible = false
+        -- corner box
+        local showCorners = boxType == "Corners"
+        local lx, ly = w * 0.3, h * 0.22
+        local cs = {
+            { Vector2.new(x, y), Vector2.new(x + lx, y) }, { Vector2.new(x, y), Vector2.new(x, y + ly) },
+            { Vector2.new(x + w, y), Vector2.new(x + w - lx, y) }, { Vector2.new(x + w, y), Vector2.new(x + w, y + ly) },
+            { Vector2.new(x, y + h), Vector2.new(x + lx, y + h) }, { Vector2.new(x, y + h), Vector2.new(x, y + h - ly) },
+            { Vector2.new(x + w, y + h), Vector2.new(x + w - lx, y + h) }, { Vector2.new(x + w, y + h), Vector2.new(x + w, y + h - ly) },
+        }
+        for i = 1, 8 do
+            local l, lo = o.corners[i], o.cornersOut[i]
+            l.Visible = showCorners
+            lo.Visible = showCorners and outline
+            if showCorners then
+                l.From, l.To, l.Color, l.Thickness = cs[i][1], cs[i][2], col.box, thick
+                lo.From, lo.To, lo.Thickness = cs[i][1], cs[i][2], thick + 2
+            end
+        end
+
+        -- 3D box
+        local show3d = false
+        if boxType == "3D" then
+            local cf = hrp.CFrame
+            local pts, ok = {}, true
+            local idx = 0
+            for _, sx in ipairs({ -1, 1 }) do
+                for _, sy in ipairs({ -1, 1 }) do
+                    for _, sz in ipairs({ -1, 1 }) do
+                        idx += 1
+                        local p = cam:WorldToViewportPoint((cf * CFrame.new(sx * 2, sy * 3 - 0.1, sz * 1.1)).Position)
+                        if p.Z <= 0 then ok = false end
+                        pts[idx] = Vector2.new(p.X, p.Y)
+                    end
                 end
-
-                if v328 then
-                    v328.Visible = false
+            end
+            show3d = ok
+            if ok then
+                for i, e in ipairs(CUBE_EDGES) do
+                    local l = o.cube[i]
+                    l.From, l.To, l.Color, l.Thickness = pts[e[1]], pts[e[2]], col.box, thick
                 end
+            end
+        end
+        for i = 1, 12 do o.cube[i].Visible = show3d end
 
-                if v329 then
-                    v329.Visible = false; if v329b then v329b.Visible = false end
-                end
-                if vFill then vFill.Visible = false end
-            else
-                local v330, v331 = t1.value71:WorldToViewportPoint(v325.Position)
+        -- fill
+        o.fill.Visible = env.EspFill == true and boxType ~= "Off"
+        if o.fill.Visible then
+            o.fill.Position, o.fill.Size = Vector2.new(x, y), Vector2.new(w, h)
+            o.fill.Color = col.fill
+            o.fill.Transparency = (env.EspFillAlpha or 25) / 100
+        end
 
-                if v331 then
-                    local v332 = t1.value71:WorldToViewportPoint(v325.Position + Vector3.new(0, v326.HipHeight * 2 + 3, 0))
-                    local v333 = math.abs(t1.value71:WorldToViewportPoint(v325.Position - Vector3.new(0, v326.HipHeight * 2 + 3, 0)).Y - v332.Y)
+        -- health bar
+        local showHp = env.EspHealth == true
+        o.hpBg.Visible, o.hp.Visible = showHp, showHp
+        if showHp then
+            local ratio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+            o.hpBg.Position, o.hpBg.Size = Vector2.new(x - 7, y - 1), Vector2.new(4, h + 2)
+            o.hp.Position, o.hp.Size = Vector2.new(x - 6, y + h * (1 - ratio)), Vector2.new(2, h * ratio)
+            o.hp.Color = (env.EspHealthGradient ~= false) and Color3.fromHSV(ratio * 0.33, 0.9, 1) or col.health
+        end
 
-                    if v333 < 6 then
-                        v333 = 6
-                    end
+        -- name / distance
+        o.name.Visible = env.EspName == true
+        if o.name.Visible then
+            o.name.Text = player.DisplayName
+            o.name.Position = Vector2.new(cx, y - 16)
+            o.name.Color = col.name
+        end
+        o.dist.Visible = env.EspDist == true
+        if o.dist.Visible then
+            o.dist.Text = "[" .. math.floor(dist) .. "m]"
+            o.dist.Position = Vector2.new(cx, y + h + 2)
+            o.dist.Color = col.dist
+        end
 
-                    local v334 = v333 / 2.3
+        -- tracer
+        o.tracer.Visible = env.EspTracers == true
+        if o.tracer.Visible then
+            local from = env.EspTracerFrom or "Bottom"
+            local fy = from == "Top" and 0 or (from == "Center" and vp.Y / 2 or vp.Y)
+            o.tracer.From = Vector2.new(vp.X / 2, fy)
+            o.tracer.To = Vector2.new(cx, y + h)
+            o.tracer.Color = col.tracer
+        end
 
-                    local boxPos = Vector2.new(v330.X - v334 / 2, v330.Y - v333 / 2)
-                    local boxSize = Vector2.new(v334, v333)
-
-                    if _G.ESP_Box_Enabled then
-                        v.Color = _G.ESP_BoxColor or Color3.new(1, 1, 1)
-                        v.Size = boxSize
-                        v.Position = boxPos
-                        v.Visible = true
+        -- skeleton
+        local showSk = env.EspSkeleton == true
+        if showSk then
+            local pairsList = char:FindFirstChild("UpperTorso") and R15 or R6
+            for i = 1, 14 do
+                local l, pr = o.bones[i], pairsList[i]
+                local a = pr and char:FindFirstChild(pr[1])
+                local b = pr and char:FindFirstChild(pr[2])
+                if a and b then
+                    local pa, pb = cam:WorldToViewportPoint(a.Position), cam:WorldToViewportPoint(b.Position)
+                    if pa.Z > 0 and pb.Z > 0 then
+                        l.From, l.To = Vector2.new(pa.X, pa.Y), Vector2.new(pb.X, pb.Y)
+                        l.Color = col.skel
+                        l.Visible = true
                     else
-                        v.Visible = false
-                    end
-
-                    if _G.ESP_Fill_Enabled and vFill then
-                        vFill.Color = _G.ESP_FillColor or Color3.new(1, 1, 1)
-                        vFill.Size = boxSize
-                        vFill.Position = boxPos
-                        vFill.Visible = true
-                    elseif vFill then
-                        vFill.Visible = false
-                    end
-
-                    if _G.ESP_Health_Enabled then
-                        local v335 = math.clamp(v326.Health / v326.MaxHealth, 0, 1)
-
-                        v328.Color = _G.ESP_HealthColor or Color3.fromRGB(0, 255, 0)
-
-                        local v337 = v333 * v335
-
-                        if v337 < 2 then
-                            v337 = 2
-                        end
-
-                        local v338 = v330.X - v334 / 2 - 3
-                        local v339 = v330.Y - v333 / 2 + (v333 - v337)
-
-                        v328.Size = Vector2.new(2, v337)
-                        v328.Position = Vector2.new(v338, v339)
-                        v328.Visible = true
-                    else
-                        v328.Visible = false
-                    end
-
-                    if _G.ESP_Name_Enabled then
-                        v329.Text = v323.Name
-                        v329.Position = Vector2.new(v330.X, v330.Y - v333 / 2 - 15)
-                        v329.Visible = true
-                    else
-                        v329.Visible = false; if v329b then v329b.Visible = false end
-                    end
-
-                    if _G.ESP_Dist_Enabled and v329b then
-                        v329b.Text = math.floor((v325.Position - t1.value71.CFrame.Position).Magnitude + 0.5) .. "m"
-                        v329b.Position = Vector2.new(v330.X, v330.Y + v333 / 2 + 2)
-                        v329b.Visible = true
-                    elseif v329b then
-                        v329b.Visible = false
+                        l.Visible = false
                     end
                 else
-                    v.Visible = false
-                    v328.Visible = false
-                    v329.Visible = false; if v329b then v329b.Visible = false end
-                    if vFill then vFill.Visible = false end
+                    l.Visible = false
                 end
             end
         else
-            v.Visible = false
-
-            if v328 then
-                v328.Visible = false
-            end
-
-            if v329 then
-                v329.Visible = false; if v329b then v329b.Visible = false end
-            end
-            if vFill then vFill.Visible = false end
+            for i = 1, 14 do o.bones[i].Visible = false end
         end
     end
-end)
--- ============================================================
--- [ESP] own tab: box/fill/health bar, each with its own color
--- ============================================================
-do
-    local secBox = t1.mESP:AddSection({ Position = "left", Name = "BOX" })
-    secBox:AddToggle({
-        Name = "Box",
-        Flag = "EspBox",
-        Default = false,
-        Callback = function(p) _G.ESP_Box_Enabled = p end
-    })
-    secBox:AddColorPicker({
-        Name = "Box Color",
-        Flag = "EspBoxColor",
-        Default = Color3.new(1, 1, 1),
-        Callback = function(c) _G.ESP_BoxColor = c end
-    })
-    secBox:AddToggle({
-        Name = "Fill Box",
-        Flag = "EspFill",
-        Default = false,
-        Callback = function(p) _G.ESP_Fill_Enabled = p end
-    })
-    secBox:AddColorPicker({
-        Name = "Fill Color",
-        Flag = "EspFillColor",
-        Default = Color3.new(1, 1, 1),
-        Callback = function(c) _G.ESP_FillColor = c end
-    })
 
-    local secHp = t1.mESP:AddSection({ Position = "center", Name = "HEALTH BAR" })
-    secHp:AddToggle({
-        Name = "Health Bar",
-        Flag = "EspHealth",
-        Default = false,
-        Callback = function(p) _G.ESP_Health_Enabled = p end
-    })
-    secHp:AddColorPicker({
-        Name = "Health Bar Color",
-        Flag = "EspHealthColor",
-        Default = Color3.fromRGB(0, 255, 0),
-        Callback = function(c) _G.ESP_HealthColor = c end
-    })
+    local wasOn = false
+    RunService.RenderStepped:Connect(function()
+        if not env.EspEnabled then
+            if wasOn then
+                for _, o in pairs(objs) do hide(o) end
+                wasOn = false
+            end
+            return
+        end
+        wasOn = true
+        local cam = workspace.CurrentCamera
+        if not cam then return end
+        local vp = cam.ViewportSize
+        for _, pl in ipairs(Players:GetPlayers()) do
+            if pl ~= lp then
+                local o = objs[pl]
+                if not o then o = make(); objs[pl] = o end
+                local ok = pcall(render, cam, vp, pl, o)
+                if not ok then hide(o) end
+            end
+        end
+    end)
 
-    local secInfo = t1.mESP:AddSection({ Position = "right", Name = "INFO" })
-    secInfo:AddToggle({
-        Name = "Name",
-        Flag = "EspName",
-        Default = false,
-        Callback = function(p) _G.ESP_Name_Enabled = p end
-    })
-    secInfo:AddToggle({
-        Name = "Distance",
-        Flag = "EspDistance",
-        Default = false,
-        Callback = function(p) _G.ESP_Dist_Enabled = p end
-    })
-    secInfo:AddToggle({
-        Name = "Team Check (hide teammates)",
-        Flag = "EspTeamCheck",
-        Default = false,
-        Callback = function(p) _G.ESP_TeamCheck = p end
-    })
+    -- ---------------- UI (VISUALS) ----------------
+    local secE = t1.mVisuals:AddSection({ Position = "left", Name = "ESP" })
+    secE:AddToggle({ Name = "Enable ESP", Flag = "EspEnabled", Default = env.EspEnabled,
+        Callback = function(p) env.EspEnabled = p end })
+    secE:AddDropdown({ Name = "Box type", Flag = "EspBoxType", Values = { "2D", "Corners", "3D", "Off" },
+        Default = env.EspBoxType, Callback = function(p) env.EspBoxType = p end })
+    secE:AddColorPicker({ Name = "Box color", Flag = "EspBoxColor", Default = col.box,
+        Callback = function(c) col.box = c; env.EspBoxColorHex = toHex(c) end })
+    secE:AddSlider({ Name = "Box thickness", Flag = "EspThicknessS", Min = 1, Max = 4,
+        Default = math.clamp(env.EspThickness, 1, 4), Callback = function(p) env.EspThickness = p end })
+    secE:AddToggle({ Name = "Outline", Flag = "EspOutlineT", Default = env.EspOutline,
+        Callback = function(p) env.EspOutline = p end })
+    secE:AddToggle({ Name = "Fill box", Flag = "EspFillT", Default = env.EspFill,
+        Callback = function(p) env.EspFill = p end })
+    secE:AddColorPicker({ Name = "Fill color", Flag = "EspFillColor", Default = col.fill,
+        Callback = function(c) col.fill = c; env.EspFillColorHex = toHex(c) end })
+    secE:AddSlider({ Name = "Fill opacity", Flag = "EspFillAlphaS", Min = 0, Max = 100,
+        Default = math.clamp(env.EspFillAlpha, 0, 100), Callback = function(p) env.EspFillAlpha = p end })
+    secE:AddToggle({ Name = "Team check (hide mates)", Flag = "EspTeamT", Default = env.EspTeamCheck,
+        Callback = function(p) env.EspTeamCheck = p end })
+    secE:AddSlider({ Name = "Max distance", Flag = "EspMaxDistS", Min = 50, Max = 3000,
+        Default = math.clamp(env.EspMaxDist, 50, 3000), Callback = function(p) env.EspMaxDist = p end })
+
+    local secI = t1.mVisuals:AddSection({ Position = "center", Name = "ESP INFO" })
+    secI:AddToggle({ Name = "Health bar", Flag = "EspHealthT", Default = env.EspHealth,
+        Callback = function(p) env.EspHealth = p end })
+    secI:AddToggle({ Name = "Health gradient", Flag = "EspHealthGradT", Default = env.EspHealthGradient,
+        Callback = function(p) env.EspHealthGradient = p end })
+    secI:AddColorPicker({ Name = "Health color (no gradient)", Flag = "EspHealthColor", Default = col.health,
+        Callback = function(c) col.health = c; env.EspHealthColorHex = toHex(c) end })
+    secI:AddToggle({ Name = "Name", Flag = "EspNameT", Default = env.EspName,
+        Callback = function(p) env.EspName = p end })
+    secI:AddColorPicker({ Name = "Name color", Flag = "EspNameColor", Default = col.name,
+        Callback = function(c) col.name = c; env.EspNameColorHex = toHex(c) end })
+    secI:AddToggle({ Name = "Distance", Flag = "EspDistT", Default = env.EspDist,
+        Callback = function(p) env.EspDist = p end })
+    secI:AddColorPicker({ Name = "Distance color", Flag = "EspDistColor", Default = col.dist,
+        Callback = function(c) col.dist = c; env.EspDistColorHex = toHex(c) end })
+    secI:AddToggle({ Name = "Skeleton", Flag = "EspSkelT", Default = env.EspSkeleton,
+        Callback = function(p) env.EspSkeleton = p end })
+    secI:AddColorPicker({ Name = "Skeleton color", Flag = "EspSkelColor", Default = col.skel,
+        Callback = function(c) col.skel = c; env.EspSkelColorHex = toHex(c) end })
+    secI:AddToggle({ Name = "Tracers", Flag = "EspTracersT", Default = env.EspTracers,
+        Callback = function(p) env.EspTracers = p end })
+    secI:AddDropdown({ Name = "Tracer from", Flag = "EspTracerFromD", Values = { "Bottom", "Center", "Top" },
+        Default = env.EspTracerFrom, Callback = function(p) env.EspTracerFrom = p end })
+    secI:AddColorPicker({ Name = "Tracer color", Flag = "EspTracerColor", Default = col.tracer,
+        Callback = function(c) col.tracer = c; env.EspTracerColorHex = toHex(c) end })
 end
 t1.value76 = game:GetService("Players")
 t1.value77 = t1.value76.LocalPlayer
@@ -3953,80 +4137,6 @@ do
         end
     })
 
-    local lines = {}
-    for _ = 1, 4 do
-        local ln = Drawing.new("Line")
-        ln.Visible = false
-        ln.Thickness = 1.5
-        ln.Color = Color3.fromRGB(0, 255, 120)
-        table.insert(lines, ln)
-    end
-    local chDot = Drawing.new("Circle")
-    chDot.Visible = false
-    chDot.Radius = 1
-    chDot.Filled = true
-    chDot.NumSides = 8
-    chDot.Color = Color3.fromRGB(0, 255, 120)
-
-    local secCH = t1.mVisuals:AddSection({ Position = "right", Name = "CROSSHAIR" })
-    secCH:AddToggle({
-        Name = "Custom Crosshair",
-        Flag = "CrosshairEnabled",
-        Default = getgenv().CrosshairEnabled,
-        Callback = function(p)
-            getgenv().CrosshairEnabled = p
-            if not p then
-                for _, ln in ipairs(lines) do ln.Visible = false end
-                chDot.Visible = false
-            end
-        end
-    })
-    secCH:AddSlider({
-        Name = "Length",
-        Flag = "CrosshairSize",
-        Min = 2, Max = 40,
-        Default = getgenv().CrosshairSize,
-        Callback = function(p) getgenv().CrosshairSize = p end
-    })
-    secCH:AddSlider({
-        Name = "Gap",
-        Flag = "CrosshairGap",
-        Min = 0, Max = 20,
-        Default = getgenv().CrosshairGap,
-        Callback = function(p) getgenv().CrosshairGap = p end
-    })
-    secCH:AddColorPicker({
-        Name = "Crosshair Color",
-        Flag = "CrosshairColor",
-        Default = Color3.fromRGB(0, 255, 120),
-        Callback = function(c)
-            for _, ln in ipairs(lines) do ln.Color = c end
-            chDot.Color = c
-        end
-    })
-
-    local chCam = workspace.CurrentCamera
-    RunService.RenderStepped:Connect(function()
-        if not (getgenv().CrosshairEnabled and chCam and chCam.Parent) then return end
-        local vp = chCam.ViewportSize
-        local cx, cy = vp.X / 2, vp.Y / 2
-        local len = getgenv().CrosshairSize or 12
-        local gap = getgenv().CrosshairGap or 4
-        local segs = {
-            { cx - gap - len, cy, cx - gap, cy },
-            { cx + gap, cy, cx + gap + len, cy },
-            { cx, cy - gap - len, cx, cy - gap },
-            { cx, cy + gap, cx, cy + gap + len }
-        }
-        for i, s in ipairs(segs) do
-            lines[i].From = Vector2.new(s[1], s[2])
-            lines[i].To = Vector2.new(s[3], s[4])
-            lines[i].Visible = true
-        end
-        chDot.Position = Vector2.new(cx, cy)
-        chDot.Visible = true
-    end)
-
     local fpsText = Drawing.new("Text")
     fpsText.Visible = false
     fpsText.Size = 14
@@ -4034,8 +4144,7 @@ do
     fpsText.Outline = true
     fpsText.Position = Vector2.new(8, 8)
     fpsText.Text = "FPS: ..."
-    local secFps = t1.mVisuals:AddSection({ Position = "right", Name = "INFO" })
-    secFps:AddToggle({
+    v17:AddToggle({
         Name = "FPS Counter",
         Flag = "FpsCounter",
         Default = false,
@@ -4151,6 +4260,883 @@ do
 end
 
 -- ============================================================
+-- [EFFECTS] вкладка EFFECTS: China hat, фигуры при прыжке/приземлении,
+-- эффекты убийств (22 шт, цвет настраивается).
+-- эффекты рисуются на клоне персонажа (оригинал прячется локально),
+-- всё только на твоей стороне, сервер ничего не видит.
+-- ============================================================
+do
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local lp = Players.LocalPlayer
+    local env = getgenv()
+    local PI = math.pi
+    local NEON, SMOOTH = Enum.Material.Neon, Enum.Material.SmoothPlastic
+
+    local function toHex(c)
+        return string.format("%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
+    end
+    local function fromHex(h, fallback)
+        if type(h) ~= "string" or #h ~= 6 then return fallback end
+        local r, g, b = tonumber(h:sub(1, 2), 16), tonumber(h:sub(3, 4), 16), tonumber(h:sub(5, 6), 16)
+        if not (r and g and b) then return fallback end
+        return Color3.fromRGB(r, g, b)
+    end
+
+    -- ---------------- общие хелперы ----------------
+    local folder
+    local function fx()
+        local cam = workspace.CurrentCamera
+        if not folder then
+            folder = Instance.new("Folder")
+            folder.Name = "\0e"
+        end
+        if folder.Parent ~= cam then folder.Parent = cam end
+        return folder
+    end
+
+    local function mk(size, cf, color, material, transp, ball)
+        local p = Instance.new("Part")
+        p.Anchored = true
+        p.CanCollide = false
+        p.CanQuery = false
+        p.CanTouch = false
+        p.CastShadow = false
+        p.Massless = true
+        p.Material = material or NEON
+        p.Color = color
+        p.Size = size
+        p.CFrame = cf
+        p.Transparency = transp or 0
+        if ball then p.Shape = Enum.PartType.Ball end
+        p.Parent = fx()
+        return p
+    end
+
+    local function run(dur, step, done)
+        local t = 0
+        local conn
+        conn = RunService.RenderStepped:Connect(function(dt)
+            t += dt
+            local a = math.min(t / dur, 1)
+            local ok = pcall(step, t, a, dt)
+            if a >= 1 or not ok then
+                conn:Disconnect()
+                if done then pcall(done) end
+            end
+        end)
+    end
+
+    local function rv()
+        return Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5)
+    end
+
+    local plist, pconn = {}, nil
+    local function emit(pos, color, size, vel, life, grav)
+        local p = mk(Vector3.new(size, size, size), CFrame.new(pos), color, NEON, 0, true)
+        plist[#plist + 1] = { p = p, v = vel, life = life, age = 0, g = grav or 0 }
+        if not pconn then
+            pconn = RunService.RenderStepped:Connect(function(dt)
+                for i = #plist, 1, -1 do
+                    local it = plist[i]
+                    it.age += dt
+                    if it.age >= it.life or not it.p.Parent then
+                        pcall(function() it.p:Destroy() end)
+                        table.remove(plist, i)
+                    else
+                        it.v += Vector3.new(0, -it.g * dt, 0)
+                        it.p.Position += it.v * dt
+                        it.p.Transparency = it.age / it.life
+                    end
+                end
+                if #plist == 0 then
+                    pconn:Disconnect()
+                    pconn = nil
+                end
+            end)
+        end
+    end
+
+    local function burst(pos, color, n, speed, size, life, grav, up)
+        for _ = 1, n do
+            local d = rv()
+            d = Vector3.new(d.X, d.Y + (up or 0), d.Z)
+            if d.Magnitude < 0.01 then d = Vector3.yAxis end
+            emit(pos, color, size, d.Unit * speed * (0.4 + math.random() * 0.6), life, grav)
+        end
+    end
+
+    local function flash(pos, color, r, dur)
+        local p = mk(Vector3.one, CFrame.new(pos), color, NEON, 0, true)
+        run(dur, function(_, a)
+            p.Size = Vector3.one * math.max(r * (1 - (1 - a) ^ 3), 0.1)
+            p.Transparency = a
+        end, function() p:Destroy() end)
+    end
+
+    local function ring(pos, color, r, dur)
+        local p = mk(Vector3.new(0.3, 1, 1), CFrame.new(pos) * CFrame.Angles(0, 0, PI / 2), color)
+        p.Shape = Enum.PartType.Cylinder
+        run(dur, function(_, a)
+            local d = math.max(r * 2 * (1 - (1 - a) ^ 3), 0.1)
+            p.Size = Vector3.new(0.3, d, d)
+            p.Transparency = a
+        end, function() p:Destroy() end)
+    end
+
+    local function bolt(a, b, color, life, jag)
+        local segs, prev, n = {}, a, 10
+        local cf = CFrame.new(a, b)
+        for i = 1, n do
+            local pnt = a:Lerp(b, i / n)
+            if i < n then
+                pnt += cf.RightVector * (math.random() - 0.5) * jag + cf.UpVector * (math.random() - 0.5) * jag
+            end
+            local len = (prev - pnt).Magnitude
+            if len > 0.01 then
+                for _, sp in ipairs({ { 1.3, color, 0.55 }, { 0.35, Color3.new(1, 1, 1), 0 } }) do
+                    local p = mk(Vector3.new(sp[1], sp[1], len), CFrame.new(prev, pnt) * CFrame.new(0, 0, -len / 2), sp[2], NEON, sp[3])
+                    segs[#segs + 1] = { p = p, b = sp[3] }
+                end
+            end
+            prev = pnt
+        end
+        run(life, function(_, aa)
+            for _, s in ipairs(segs) do s.p.Transparency = s.b + (1 - s.b) * aa end
+        end, function()
+            for _, s in ipairs(segs) do s.p:Destroy() end
+        end)
+    end
+
+    -- ---------------- клон персонажа ----------------
+    local function ghost(char)
+        char.Archivable = true
+        local ok, clone = pcall(function() return char:Clone() end)
+        if not ok or not clone then return nil end
+        local hrp = clone:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            clone:Destroy()
+            return nil
+        end
+        local g = { model = clone, parts = {}, rel = {}, base = {}, size = {}, hrp = hrp }
+        local root = hrp.CFrame
+        local kill = {}
+        for _, d in ipairs(clone:GetDescendants()) do
+            if d:IsA("BasePart") then
+                d.Anchored = true
+                d.CanCollide = false
+                d.CanQuery = false
+                d.CanTouch = false
+                g.parts[#g.parts + 1] = d
+                g.rel[d] = root:ToObjectSpace(d.CFrame)
+                g.base[d] = d.Transparency
+                g.size[d] = d.Size
+            elseif d:IsA("Script") or d:IsA("LocalScript") or d:IsA("Humanoid") or d:IsA("BillboardGui")
+                or d:IsA("Highlight") or d:IsA("Sound") or d:IsA("ForceField")
+                or d:IsA("JointInstance") or d:IsA("WeldConstraint") then
+                kill[#kill + 1] = d
+            end
+        end
+        -- без суставов: иначе CFrame одной детали двигает всю сборку
+        for _, d in ipairs(kill) do pcall(function() d:Destroy() end) end
+        clone.Parent = fx()
+        return g
+    end
+
+    local function pose(g, cf)
+        for _, p in ipairs(g.parts) do p.CFrame = cf * g.rel[p] end
+    end
+    local function alpha(g, a)
+        for _, p in ipairs(g.parts) do p.Transparency = g.base[p] + (1 - g.base[p]) * a end
+    end
+    local function tint(g, color, material)
+        for _, p in ipairs(g.parts) do
+            if p.Name ~= "HumanoidRootPart" then
+                p.Color = color
+                if material then p.Material = material end
+                if p:IsA("MeshPart") then pcall(function() p.TextureID = "" end) end
+            end
+        end
+        for _, d in ipairs(g.model:GetDescendants()) do
+            if d:IsA("Decal") or d:IsA("Texture") or d:IsA("SurfaceAppearance") or d:IsA("Shirt")
+                or d:IsA("Pants") or d:IsA("ShirtGraphic") then
+                pcall(function() d:Destroy() end)
+            end
+        end
+    end
+    local function scaleAbout(g, cf, s)
+        s = math.max(s, 0.01)
+        for _, p in ipairs(g.parts) do
+            local rel = g.rel[p]
+            p.Size = g.size[p] * s
+            p.CFrame = cf * (CFrame.new(rel.Position * s) * (rel - rel.Position))
+        end
+    end
+    local function flop(g, t, amp)
+        for i, p in ipairs(g.parts) do
+            local n = p.Name
+            if n:find("Arm") or n:find("Leg") or n:find("Hand") or n:find("Foot") or n:find("Head") then
+                p.CFrame = p.CFrame * CFrame.Angles(math.sin(t * 9 + i) * amp, 0, math.cos(t * 7 + i) * amp)
+            end
+        end
+    end
+    local function finish(g)
+        if g then pcall(function() g.model:Destroy() end) end
+    end
+    local function scatter(g, speed, life, grav)
+        local center = g.hrp.Position
+        local st = {}
+        for _, p in ipairs(g.parts) do
+            local d = p.Position - center
+            if d.Magnitude < 0.1 then d = rv() end
+            st[p] = { v = d.Unit * speed * (0.5 + math.random()) + Vector3.new(0, speed * 0.5, 0), w = rv() * 12 }
+        end
+        run(life, function(_, a, dt)
+            for p, s in pairs(st) do
+                s.v += Vector3.new(0, -grav * dt, 0)
+                local cf = p.CFrame
+                p.CFrame = CFrame.new(cf.Position + s.v * dt) * (cf - cf.Position) * CFrame.Angles(s.w.X * dt, s.w.Y * dt, s.w.Z * dt)
+                p.Transparency = g.base[p] + (1 - g.base[p]) * math.clamp((a - 0.5) / 0.5, 0, 1)
+            end
+        end, function() finish(g) end)
+    end
+
+    -- ---------------- 22 эффекта убийства ----------------
+    -- c = { g = клон|nil, pos, cf, color }
+    local E = {}
+    local ORDER = { "Lightning", "Fly Away", "Explosion", "Disintegrate", "Freeze", "Burn", "Gold Statue",
+        "Black Hole", "Rainbow", "Confetti", "Meteor", "Tornado", "Shrink", "Pop", "Angel", "Ghost", "Slam",
+        "Glitch", "Balloon", "Fireworks", "Shatter", "Orbit" }
+    local DOWN = Vector3.new(0, 2.8, 0)
+
+    E["Lightning"] = function(c)
+        local top = c.pos + Vector3.new(math.random(-8, 8), 140, math.random(-8, 8))
+        task.spawn(function()
+            for _ = 1, 3 do
+                bolt(top, c.pos, c.color, 0.3, 8)
+                flash(c.pos, c.color, 14, 0.3)
+                if c.g then tint(c.g, Color3.fromRGB(30, 30, 30), SMOOTH) end
+                burst(c.pos, Color3.new(1, 1, 1), 8, 35, 0.35, 0.6, 40, 0.5)
+                task.wait(0.2)
+            end
+        end)
+        if c.g then
+            run(1.6, function(_, a)
+                local k = 1 - a
+                pose(c.g, c.cf * CFrame.new((math.random() - 0.5) * 0.5 * k, 0, (math.random() - 0.5) * 0.5 * k))
+                alpha(c.g, math.clamp((a - 0.6) / 0.4, 0, 1))
+            end, function() finish(c.g) end)
+        end
+    end
+
+    E["Fly Away"] = function(c)
+        if not c.g then return end
+        local h, grav = math.random(40, 50), 110
+        local v0 = math.sqrt(2 * grav * h)
+        local total = 2 * v0 / grav
+        local w = rv() * 16
+        local p0 = c.cf.Position
+        local rot0 = c.cf - p0
+        burst(p0, c.color, 12, 30, 0.4, 0.7, 50, 0.5)
+        run(total + 0.7, function(t)
+            local tt = math.min(t, total)
+            local y = v0 * tt - 0.5 * grav * tt * tt
+            pose(c.g, CFrame.new(p0 + Vector3.new(0, y, 0)) * CFrame.Angles(w.X * tt * 0.4, w.Y * tt * 0.4, w.Z * tt * 0.4) * rot0)
+            flop(c.g, t, 0.7)
+            if t < total then emit(p0 + Vector3.new(0, y, 0), c.color, 0.5, Vector3.zero, 0.4, 0) end
+            if t > total then alpha(c.g, (t - total) / 0.7) end
+        end, function()
+            ring(p0 - DOWN, c.color, 10, 0.5)
+            finish(c.g)
+        end)
+    end
+
+    E["Explosion"] = function(c)
+        flash(c.pos, c.color, 16, 0.5)
+        ring(c.pos - DOWN, c.color, 22, 0.6)
+        burst(c.pos, c.color, 40, 55, 0.6, 1.0, 60, 0.4)
+        burst(c.pos, Color3.fromRGB(255, 170, 40), 25, 40, 0.5, 0.8, 50, 0.4)
+        if c.g then scatter(c.g, 45, 2.0, 90) end
+    end
+
+    E["Disintegrate"] = function(c)
+        if not c.g then
+            burst(c.pos, c.color, 40, 6, 0.3, 1.5, -8, 1)
+            return
+        end
+        local offs = {}
+        for _, p in ipairs(c.g.parts) do offs[p] = rv() * 2 end
+        run(1.8, function(_, a, dt)
+            for _, p in ipairs(c.g.parts) do
+                local cf = p.CFrame
+                p.CFrame = CFrame.new(cf.Position + (Vector3.new(0, 3, 0) + offs[p]) * dt) * (cf - cf.Position)
+                p.Transparency = c.g.base[p] + (1 - c.g.base[p]) * a
+            end
+            for _ = 1, 3 do
+                local p = c.g.parts[math.random(#c.g.parts)]
+                emit(p.Position, c.color, 0.25, Vector3.new(0, 4, 0) + rv() * 3, 1.0, -2)
+            end
+        end, function() finish(c.g) end)
+    end
+
+    E["Freeze"] = function(c)
+        if not c.g then return end
+        tint(c.g, c.color, Enum.Material.Ice)
+        ring(c.pos - DOWN, c.color, 8, 0.5)
+        run(1.0, function() pose(c.g, c.cf) end, function()
+            flash(c.pos, Color3.new(1, 1, 1), 8, 0.3)
+            burst(c.pos, c.color, 30, 35, 0.35, 1.0, 60, 0.6)
+            scatter(c.g, 18, 1.6, 90)
+        end)
+    end
+
+    E["Burn"] = function(c)
+        if not c.g then return end
+        local fire = { c.color, Color3.fromRGB(255, 140, 20), Color3.fromRGB(255, 220, 80) }
+        run(1.8, function(_, a)
+            for _, p in ipairs(c.g.parts) do
+                if p.Name ~= "HumanoidRootPart" then p.Color = p.Color:Lerp(Color3.fromRGB(20, 10, 5), 0.08) end
+            end
+            for _ = 1, 3 do
+                local p = c.g.parts[math.random(#c.g.parts)]
+                emit(p.Position, fire[math.random(#fire)], 0.5, Vector3.new((math.random() - 0.5) * 3, 6 + math.random() * 4, (math.random() - 0.5) * 3), 0.8, -4)
+            end
+            alpha(c.g, math.clamp((a - 0.7) / 0.3, 0, 1))
+        end, function() finish(c.g) end)
+    end
+
+    E["Gold Statue"] = function(c)
+        if not c.g then return end
+        tint(c.g, c.color, Enum.Material.Metal)
+        for _, p in ipairs(c.g.parts) do p.Reflectance = 0.5 end
+        local p0 = c.cf.Position
+        local rot0 = c.cf - p0
+        run(2.0, function(_, a)
+            pose(c.g, CFrame.new(p0 + Vector3.new(0, 5 * a, 0)) * CFrame.Angles(0, a * 8, 0) * rot0)
+            emit(p0 + rv() * 4 + Vector3.new(0, 2 * a, 0), Color3.fromRGB(255, 230, 120), 0.25, Vector3.new(0, 3, 0), 0.7, 0)
+            alpha(c.g, math.clamp((a - 0.7) / 0.3, 0, 1))
+        end, function() finish(c.g) end)
+    end
+
+    E["Black Hole"] = function(c)
+        if not c.g then return end
+        local center = c.pos + Vector3.new(0, 3, 0)
+        local orig = {}
+        for _, p in ipairs(c.g.parts) do orig[p] = c.cf * c.g.rel[p] end
+        local core = mk(Vector3.one, CFrame.new(center), Color3.new(0, 0, 0), SMOOTH, 0, true)
+        local halo = mk(Vector3.one, CFrame.new(center), c.color, NEON, 0.5, true)
+        ring(c.pos - DOWN, c.color, 14, 1.2)
+        run(1.6, function(_, a)
+            local s = 5 * math.sin(a * PI) + 0.5
+            core.Size = Vector3.one * s
+            halo.Size = Vector3.one * s * 1.5
+            local rot = CFrame.Angles(0, a * 8, 0)
+            local k = 1 - a ^ 1.5
+            for _, p in ipairs(c.g.parts) do
+                local o = orig[p]
+                p.Size = c.g.size[p] * math.max(k, 0.02)
+                p.CFrame = CFrame.new(center + rot:VectorToWorldSpace(o.Position - center) * k) * rot * (o - o.Position)
+            end
+            local pp = center + rv() * 28
+            emit(pp, c.color, 0.25, (center - pp) * 2.5, 0.4, 0)
+        end, function()
+            core:Destroy()
+            halo:Destroy()
+            finish(c.g)
+        end)
+    end
+
+    E["Rainbow"] = function(c)
+        if not c.g then
+            burst(c.pos, Color3.fromHSV(math.random(), 1, 1), 40, 30, 0.35, 1.2, 40, 0.5)
+            return
+        end
+        local p0 = c.cf.Position
+        local rot0 = c.cf - p0
+        run(2.0, function(t, a)
+            for i, p in ipairs(c.g.parts) do
+                if p.Name ~= "HumanoidRootPart" then
+                    p.Material = NEON
+                    p.Color = Color3.fromHSV((t * 1.5 + i * 0.07) % 1, 1, 1)
+                end
+            end
+            pose(c.g, CFrame.new(p0 + Vector3.new(0, 6 * a, 0)) * CFrame.Angles(0, a * 6, 0) * rot0)
+            alpha(c.g, math.clamp((a - 0.6) / 0.4, 0, 1))
+        end, function() finish(c.g) end)
+    end
+
+    E["Confetti"] = function(c)
+        for _ = 1, 70 do
+            emit(c.pos, Color3.fromHSV(math.random(), 0.9, 1), 0.35,
+                Vector3.new((math.random() - 0.5) * 40, 30 + math.random() * 30, (math.random() - 0.5) * 40), 1.6, 55)
+        end
+        if c.g then
+            run(0.5, function(_, a) scaleAbout(c.g, c.cf, 1 - a) end, function() finish(c.g) end)
+        end
+    end
+
+    E["Meteor"] = function(c)
+        local start = c.pos + Vector3.new(35, 130, 20)
+        local m = mk(Vector3.one * 6, CFrame.new(start), c.color, NEON, 0, true)
+        local core = mk(Vector3.one * 3.5, CFrame.new(start), Color3.new(1, 1, 1), NEON, 0, true)
+        run(0.6, function(_, a)
+            local pos = start:Lerp(c.pos, a * a)
+            m.Position, core.Position = pos, pos
+            emit(pos, c.color, 2, Vector3.new(0, 4, 0), 0.5, 0)
+        end, function()
+            m:Destroy()
+            core:Destroy()
+            flash(c.pos, c.color, 20, 0.5)
+            ring(c.pos - DOWN, c.color, 26, 0.7)
+            burst(c.pos, c.color, 45, 60, 0.6, 1.0, 70, 0.5)
+            if c.g then scatter(c.g, 50, 2.0, 90) end
+        end)
+    end
+
+    E["Tornado"] = function(c)
+        local p0 = c.cf.Position
+        local rot0 = c.cf - p0
+        run(2.2, function(t, a)
+            if c.g then
+                pose(c.g, CFrame.new(p0 + Vector3.new(0, 25 * a, 0)) * CFrame.Angles(0, t * 14, 0) * rot0)
+                alpha(c.g, math.clamp((a - 0.75) / 0.25, 0, 1))
+            end
+            for k = 0, 2 do
+                local ang = t * 10 + k * 2.1
+                local y = (t * 18 + k * 9) % 28
+                local r = 2 + y * 0.12
+                emit(p0 + Vector3.new(math.cos(ang) * r, y, math.sin(ang) * r), c.color, 0.5, Vector3.zero, 0.4, 0)
+            end
+        end, function() finish(c.g) end)
+    end
+
+    E["Shrink"] = function(c)
+        ring(c.pos - DOWN, c.color, 7, 0.6)
+        if c.g then
+            run(0.9, function(_, a) scaleAbout(c.g, c.cf, 1 - a) end, function()
+                burst(c.pos, c.color, 12, 10, 0.3, 0.6, 20, 0.3)
+                finish(c.g)
+            end)
+        end
+    end
+
+    E["Pop"] = function(c)
+        if not c.g then
+            flash(c.pos, c.color, 10, 0.4)
+            return
+        end
+        run(0.6, function(_, a)
+            scaleAbout(c.g, c.cf, 1 + 0.9 * a)
+            for _, p in ipairs(c.g.parts) do
+                if p.Name ~= "HumanoidRootPart" then p.Color = p.Color:Lerp(c.color, 0.1) end
+            end
+        end, function()
+            flash(c.pos, c.color, 14, 0.4)
+            burst(c.pos, c.color, 50, 50, 0.5, 0.9, 50, 0.3)
+            finish(c.g)
+        end)
+    end
+
+    E["Angel"] = function(c)
+        local p0 = c.cf.Position
+        local rot0 = c.cf - p0
+        local beam = mk(Vector3.new(220, 5, 5), CFrame.new(p0 + Vector3.new(0, 100, 0)) * CFrame.Angles(0, 0, PI / 2), c.color, NEON, 0.55)
+        beam.Shape = Enum.PartType.Cylinder
+        local halo = mk(Vector3.new(0.25, 3, 3), CFrame.new(p0 + Vector3.new(0, 4, 0)) * CFrame.Angles(0, 0, PI / 2), Color3.new(1, 1, 1), NEON, 0)
+        halo.Shape = Enum.PartType.Cylinder
+        run(2.6, function(_, a)
+            local y = 35 * a * a
+            local fade = math.clamp((a - 0.8) / 0.2, 0, 1)
+            beam.Transparency = 0.55 + 0.45 * fade
+            halo.CFrame = CFrame.new(p0 + Vector3.new(0, 4 + y, 0)) * CFrame.Angles(0, 0, PI / 2)
+            halo.Transparency = fade
+            if c.g then
+                pose(c.g, CFrame.new(p0 + Vector3.new(0, y, 0)) * rot0)
+                alpha(c.g, math.clamp((a - 0.6) / 0.4, 0, 1))
+            end
+            emit(p0 + rv() * 5 + Vector3.new(0, y, 0), Color3.new(1, 1, 1), 0.25, Vector3.new(0, 6, 0), 0.8, 0)
+        end, function()
+            beam:Destroy()
+            halo:Destroy()
+            finish(c.g)
+        end)
+    end
+
+    E["Ghost"] = function(c)
+        if not c.g then return end
+        tint(c.g, Color3.new(1, 1, 1), NEON)
+        local p0 = c.cf.Position
+        local rot0 = c.cf - p0
+        run(2.0, function(t, a)
+            pose(c.g, CFrame.new(p0 + Vector3.new(math.sin(t * 5) * 1.2, 10 * a, 0)) * rot0)
+            alpha(c.g, 0.45 + 0.55 * a)
+            if math.random() < 0.5 then
+                emit(p0 + Vector3.new(0, 10 * a, 0) + rv() * 2, c.color, 0.25, Vector3.new(0, -2, 0), 0.6, 0)
+            end
+        end, function() finish(c.g) end)
+    end
+
+    E["Slam"] = function(c)
+        local p0 = c.cf.Position
+        local rot0 = c.cf - p0
+        ring(p0 - DOWN, c.color, 18, 0.6)
+        burst(p0 - Vector3.new(0, 2.5, 0), Color3.fromRGB(150, 130, 110), 25, 25, 0.5, 0.8, 40, 1)
+        if c.g then
+            run(0.7, function(_, a)
+                pose(c.g, CFrame.new(p0 - Vector3.new(0, 7 * a, 0)) * rot0)
+            end, function() finish(c.g) end)
+        end
+    end
+
+    E["Glitch"] = function(c)
+        if not c.g then return end
+        local cols = { c.color, Color3.new(1, 1, 1), Color3.new(0, 0, 0) }
+        run(1.0, function()
+            pose(c.g, c.cf * CFrame.new((math.random() - 0.5) * 0.6, 0, 0))
+            for _, p in ipairs(c.g.parts) do
+                if p.Name ~= "HumanoidRootPart" then
+                    p.CFrame = p.CFrame * CFrame.new((math.random() - 0.5) * 1.5, (math.random() - 0.5), 0)
+                    p.Color = cols[math.random(#cols)]
+                    p.Material = NEON
+                end
+            end
+            alpha(c.g, math.random() < 0.25 and 0.7 or 0)
+        end, function()
+            burst(c.pos, c.color, 30, 35, 0.35, 0.6, 30, 0.3)
+            finish(c.g)
+        end)
+    end
+
+    E["Balloon"] = function(c)
+        local p0 = c.cf.Position
+        local rot0 = c.cf - p0
+        local balloon = mk(Vector3.one * 6, CFrame.new(p0 + Vector3.new(0, 8, 0)), c.color, SMOOTH, 0, true)
+        local str = mk(Vector3.new(0.08, 0.08, 1), CFrame.new(p0), Color3.new(1, 1, 1), SMOOTH, 0)
+        run(3.2, function(t, a)
+            local y = 100 * a * a
+            local gpos = p0 + Vector3.new(math.sin(t * 2) * 2, y, math.cos(t * 1.6) * 2)
+            local bpos = gpos + Vector3.new(0, 8, 0)
+            balloon.Position = bpos
+            local len = (bpos - gpos).Magnitude
+            str.Size = Vector3.new(0.08, 0.08, len)
+            str.CFrame = CFrame.new(gpos, bpos) * CFrame.new(0, 0, -len / 2)
+            local fade = math.clamp((a - 0.8) / 0.2, 0, 1)
+            balloon.Transparency, str.Transparency = fade, fade
+            if c.g then
+                pose(c.g, CFrame.new(gpos) * rot0)
+                flop(c.g, t, 0.5)
+                alpha(c.g, fade)
+            end
+        end, function()
+            balloon:Destroy()
+            str:Destroy()
+            finish(c.g)
+        end)
+    end
+
+    E["Fireworks"] = function(c)
+        local p0 = c.cf.Position
+        local rot0 = c.cf - p0
+        local top = p0 + Vector3.new(0, 70, 0)
+        local function pop()
+            flash(top, Color3.new(1, 1, 1), 16, 0.4)
+            for i = 1, 90 do
+                local d = rv()
+                if d.Magnitude < 0.01 then d = Vector3.yAxis end
+                local col = (i % 3 == 0) and c.color or Color3.fromHSV(math.random(), 0.9, 1)
+                emit(top, col, 0.5, d.Unit * 45, 1.6, 25)
+            end
+        end
+        if not c.g then
+            pop()
+            return
+        end
+        run(0.9, function(t, a)
+            local y = 70 * a * a
+            pose(c.g, CFrame.new(p0 + Vector3.new(0, y, 0)) * CFrame.Angles(0, t * 12, 0) * rot0)
+            emit(p0 + Vector3.new(0, y, 0), c.color, 0.5, Vector3.new(0, -8, 0), 0.5, 0)
+        end, function()
+            pop()
+            finish(c.g)
+        end)
+    end
+
+    E["Shatter"] = function(c)
+        burst(c.pos, c.color, 20, 25, 0.3, 0.8, 70, 0.4)
+        if c.g then scatter(c.g, 14, 2.2, 80) end
+    end
+
+    E["Orbit"] = function(c)
+        if not c.g then return end
+        local center = c.pos + Vector3.new(0, 4, 0)
+        local rot0 = c.cf - c.cf.Position
+        ring(c.pos - DOWN, c.color, 9, 0.8)
+        run(1.8, function(t, a)
+            local ang = t * 7
+            local r = 7 * (1 - a * 0.6)
+            local pos = center + Vector3.new(math.cos(ang) * r, a * 12, math.sin(ang) * r)
+            scaleAbout(c.g, CFrame.new(pos) * CFrame.Angles(0, -ang, 0) * rot0, 1 - a * 0.85)
+            emit(pos, c.color, 0.3, Vector3.zero, 0.5, 0)
+        end, function()
+            burst(center + Vector3.new(0, 12, 0), c.color, 25, 25, 0.35, 0.7, 30, 0.2)
+            finish(c.g)
+        end)
+    end
+
+    -- ---------------- запуск / детекция убийств ----------------
+    local kcol = fromHex(env.KillFxColorHex, Color3.fromRGB(120, 190, 255))
+
+    local function hideOrig(char)
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("BasePart") then d.LocalTransparencyModifier = 1 end
+        end
+    end
+
+    local function trigger(char, name, color, previewCF)
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local fn = E[name]
+        if not hrp or not fn then return end
+        local g = ghost(char)
+        local cf = previewCF or hrp.CFrame
+        if g then
+            if previewCF then pose(g, cf) else hideOrig(char) end
+        end
+        local ok = pcall(fn, { g = g, pos = cf.Position, cf = cf, color = color })
+        if not ok then finish(g) end
+    end
+
+    local function watch(pl)
+        if pl == lp then return end
+        local function onChar(char)
+            local hum = char:WaitForChild("Humanoid", 10)
+            if not hum then return end
+            hum.Died:Connect(function()
+                if not env.KillFxEnabled then return end
+                local tag = hum:FindFirstChild("creator")
+                local mine
+                if tag and tag:IsA("ObjectValue") and tag.Value ~= nil then
+                    mine = tag.Value == lp -- игра ставит creator: точно знаем убийцу
+                else
+                    mine = os.clock() - (t1.lastFire or 0) < 1.5 -- иначе: стрелял в последние 1.5 с
+                end
+                if mine then
+                    local name = env.KillFxName
+                    if name == "Random" then name = ORDER[math.random(#ORDER)] end
+                    trigger(char, name, kcol)
+                end
+            end)
+        end
+        pl.CharacterAdded:Connect(onChar)
+        if pl.Character then task.spawn(onChar, pl.Character) end
+    end
+    for _, pl in ipairs(Players:GetPlayers()) do watch(pl) end
+    Players.PlayerAdded:Connect(watch)
+
+    local function preview()
+        local char = lp.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local cam = workspace.CurrentCamera
+        local flat = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+        if flat.Magnitude < 0.01 then flat = Vector3.new(0, 0, -1) end
+        local pos = hrp.Position + flat.Unit * 14
+        local name = env.KillFxName
+        if name == "Random" then name = ORDER[math.random(#ORDER)] end
+        trigger(char, name, kcol, CFrame.new(pos, pos - flat.Unit))
+    end
+
+    -- ---------------- China hat ----------------
+    local hatCol = fromHex(env.HatColorHex, Color3.fromRGB(255, 77, 109))
+    local hat = { discs = {}, balls = {}, key = nil, rot = 0 }
+
+    local function clearHat()
+        for _, d in ipairs(hat.discs) do d.p:Destroy() end
+        for _, b in ipairs(hat.balls) do b.p:Destroy() end
+        hat.discs, hat.balls, hat.key = {}, {}, nil
+    end
+
+    local function buildHat()
+        clearHat()
+        local R = env.HatSize or 3
+        local detailed = env.HatDetail == "Detailed"
+        local n = detailed and 22 or 6
+        local H = R * 0.55
+        for i = 1, n do
+            local r = R * (1 - (i - 0.5) / n)
+            local p = mk(Vector3.new(H / n * 1.15, r * 2, r * 2), CFrame.new(), hatCol, NEON, 0.4)
+            p.Shape = Enum.PartType.Cylinder
+            hat.discs[#hat.discs + 1] = { p = p, y = (i - 0.5) * H / n, hue = i / n }
+        end
+        if detailed then
+            for k = 0, 23 do
+                local p = mk(Vector3.one * 0.25, CFrame.new(), hatCol, NEON, 0.2, true)
+                hat.balls[#hat.balls + 1] = { p = p, ang = k / 24 * 2 * PI, r = R, y = 0.05 }
+            end
+            local tip = mk(Vector3.one * 0.35, CFrame.new(), Color3.new(1, 1, 1), NEON, 0, true)
+            hat.balls[#hat.balls + 1] = { p = tip, ang = 0, r = 0, y = H + 0.1 }
+        end
+        hat.key = tostring(env.HatDetail) .. "|" .. tostring(env.HatSize)
+    end
+
+    RunService.RenderStepped:Connect(function(dt)
+        if not env.HatEnabled then
+            if hat.key then clearHat() end
+            return
+        end
+        local char = lp.Character
+        local head = char and char:FindFirstChild("Head")
+        if not head then return end
+        if hat.key ~= tostring(env.HatDetail) .. "|" .. tostring(env.HatSize) then buildHat() end
+        if env.HatRotate then hat.rot += dt * 1.5 end
+        local base = head.Position + Vector3.new(0, head.Size.Y / 2 + 0.1 + (env.HatHeight or 0) / 10, 0)
+        local transp = 1 - (env.HatAlpha or 60) / 100
+        for _, d in ipairs(hat.discs) do
+            d.p.CFrame = CFrame.new(base + Vector3.new(0, d.y, 0)) * CFrame.Angles(0, hat.rot, PI / 2)
+            d.p.Transparency = transp
+            d.p.Color = env.HatRainbow and Color3.fromHSV((d.hue + os.clock() * 0.4) % 1, 1, 1) or hatCol
+        end
+        for _, b in ipairs(hat.balls) do
+            local ang = b.ang + hat.rot
+            b.p.Position = base + Vector3.new(math.cos(ang) * b.r, b.y, math.sin(ang) * b.r)
+            if b.r > 0 then
+                b.p.Color = env.HatRainbow and Color3.fromHSV((b.ang / (2 * PI) + os.clock() * 0.4) % 1, 1, 1) or hatCol
+            end
+        end
+    end)
+
+    -- ---------------- фигуры при прыжке / приземлении ----------------
+    local jcol = fromHex(env.JumpColorHex, Color3.fromRGB(255, 77, 109))
+    local shapes = {}
+
+    local function spawnShape(center)
+        local sides = ({ Circle = 28, Square = 4, Triangle = 3 })[env.JumpShape or "Circle"] or 28
+        local segs = {}
+        for i = 1, sides do segs[i] = mk(Vector3.new(0.25, 0.12, 1), CFrame.new(center), jcol, NEON, 0) end
+        shapes[#shapes + 1] = {
+            segs = segs, sides = sides, c = center, t = 0, spin = math.random() * PI,
+            dur = math.max((env.JumpDur or 8) / 10, 0.2), max = env.JumpSize or 6,
+        }
+    end
+
+    RunService.RenderStepped:Connect(function(dt)
+        for i = #shapes, 1, -1 do
+            local s = shapes[i]
+            s.t += dt
+            local a = s.t / s.dur
+            if a >= 1 then
+                for _, p in ipairs(s.segs) do p:Destroy() end
+                table.remove(shapes, i)
+            else
+                local r = s.max * (1 - (1 - a) ^ 3)
+                local off = (s.sides == 3 and -PI / 2) or (s.sides == 4 and PI / 4) or 0
+                local verts = {}
+                for k = 0, s.sides - 1 do
+                    local ang = off + s.spin * 0 + a * 1.2 + k / s.sides * 2 * PI
+                    verts[k + 1] = s.c + Vector3.new(math.cos(ang) * r, 0, math.sin(ang) * r)
+                end
+                for k = 1, s.sides do
+                    local v1, v2 = verts[k], verts[k % s.sides + 1]
+                    local len = (v2 - v1).Magnitude
+                    local seg = s.segs[k]
+                    if len > 0.01 then
+                        seg.Size = Vector3.new(0.25, 0.12, len + 0.06)
+                        seg.CFrame = CFrame.new(v1, v2) * CFrame.new(0, 0, -len / 2)
+                    end
+                    seg.Transparency = a * a
+                end
+            end
+        end
+    end)
+
+    local function feet(char)
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not (hrp and hum) then return nil end
+        local off = hum.HipHeight > 0 and (hum.HipHeight + hrp.Size.Y / 2) or 3
+        return hrp.Position - Vector3.new(0, off - 0.05, 0)
+    end
+
+    local function watchSelf(char)
+        local hum = char:WaitForChild("Humanoid", 10)
+        if not hum then return end
+        hum.StateChanged:Connect(function(_, new)
+            if not env.JumpFxEnabled then return end
+            if new == Enum.HumanoidStateType.Jumping and env.JumpOnJump then
+                local f = feet(char)
+                if f then spawnShape(f) end
+            elseif new == Enum.HumanoidStateType.Landed and env.JumpOnLand then
+                local f = feet(char)
+                if f then spawnShape(f) end
+            end
+        end)
+    end
+    if lp.Character then task.spawn(watchSelf, lp.Character) end
+    lp.CharacterAdded:Connect(watchSelf)
+
+    -- ---------------- UI ----------------
+    local t0 = os.clock()
+    local function addButton(sec, name, fn)
+        local ok = pcall(function()
+            sec:AddButton({ Name = name, Title = name, Text = name, Callback = fn })
+        end)
+        if ok then return end
+        sec:AddToggle({
+            Name = name, Flag = "Btn_" .. name, Default = false,
+            Callback = function()
+                if os.clock() - t0 < 3 then return end
+                fn()
+            end
+        })
+    end
+
+    local names = { "Random" }
+    for _, n in ipairs(ORDER) do names[#names + 1] = n end
+
+    local sk = t1.mFx:AddSection({ Position = "left", Name = "KILL EFFECT" })
+    sk:AddToggle({ Name = "Enable kill effect", Flag = "KillFxEnabledT", Default = env.KillFxEnabled,
+        Callback = function(p) env.KillFxEnabled = p end })
+    sk:AddDropdown({ Name = "Effect", Flag = "KillFxNameD", Values = names, Default = env.KillFxName,
+        Callback = function(p) env.KillFxName = p end })
+    sk:AddColorPicker({ Name = "Effect color", Flag = "KillFxColor", Default = kcol,
+        Callback = function(cc) kcol = cc; env.KillFxColorHex = toHex(cc) end })
+    addButton(sk, "Preview effect", preview)
+
+    local sh = t1.mFx:AddSection({ Position = "center", Name = "CHINA HAT" })
+    sh:AddToggle({ Name = "China hat", Flag = "HatEnabledT", Default = env.HatEnabled,
+        Callback = function(p) env.HatEnabled = p end })
+    sh:AddDropdown({ Name = "Detail", Flag = "HatDetailD", Values = { "Simple", "Detailed" }, Default = env.HatDetail,
+        Callback = function(p) env.HatDetail = p end })
+    sh:AddSlider({ Name = "Size", Flag = "HatSizeS", Min = 1, Max = 8, Default = math.clamp(env.HatSize, 1, 8),
+        Callback = function(p) env.HatSize = p end })
+    sh:AddSlider({ Name = "Height offset", Flag = "HatHeightS", Min = -10, Max = 30, Default = math.clamp(env.HatHeight, -10, 30),
+        Callback = function(p) env.HatHeight = p end })
+    sh:AddSlider({ Name = "Opacity", Flag = "HatAlphaS", Min = 5, Max = 100, Default = math.clamp(env.HatAlpha, 5, 100),
+        Callback = function(p) env.HatAlpha = p end })
+    sh:AddToggle({ Name = "Rotate", Flag = "HatRotateT", Default = env.HatRotate,
+        Callback = function(p) env.HatRotate = p end })
+    sh:AddToggle({ Name = "Rainbow", Flag = "HatRainbowT", Default = env.HatRainbow,
+        Callback = function(p) env.HatRainbow = p end })
+    sh:AddColorPicker({ Name = "Hat color", Flag = "HatColor", Default = hatCol,
+        Callback = function(cc) hatCol = cc; env.HatColorHex = toHex(cc) end })
+
+    local sj = t1.mFx:AddSection({ Position = "right", Name = "JUMP / LAND SHAPE" })
+    sj:AddToggle({ Name = "Enable", Flag = "JumpFxEnabledT", Default = env.JumpFxEnabled,
+        Callback = function(p) env.JumpFxEnabled = p end })
+    sj:AddDropdown({ Name = "Shape", Flag = "JumpShapeD", Values = { "Circle", "Square", "Triangle" }, Default = env.JumpShape,
+        Callback = function(p) env.JumpShape = p end })
+    sj:AddToggle({ Name = "On jump", Flag = "JumpOnJumpT", Default = env.JumpOnJump,
+        Callback = function(p) env.JumpOnJump = p end })
+    sj:AddToggle({ Name = "On landing", Flag = "JumpOnLandT", Default = env.JumpOnLand,
+        Callback = function(p) env.JumpOnLand = p end })
+    sj:AddSlider({ Name = "Size", Flag = "JumpSizeS", Min = 2, Max = 25, Default = math.clamp(env.JumpSize, 2, 25),
+        Callback = function(p) env.JumpSize = p end })
+    sj:AddSlider({ Name = "Duration (x0.1s)", Flag = "JumpDurS", Min = 3, Max = 30, Default = math.clamp(env.JumpDur, 3, 30),
+        Callback = function(p) env.JumpDur = p end })
+    sj:AddColorPicker({ Name = "Shape color", Flag = "JumpColor", Default = jcol,
+        Callback = function(cc) jcol = cc; env.JumpColorHex = toHex(cc) end })
+end
+
+-- ============================================================
 -- [CONFIG + THEME] SETTINGS tab
 -- CONFIG: выбор из списка, имя для нового, кнопки Save / Load / Delete / Reset
 -- THEME: пресеты акцентного цвета + Custom (hue/sat)
@@ -4229,9 +5215,17 @@ do
 
     local acts = vSettings:AddSection({ Position = "center", Name = "ACTIONS" })
 
-    addButton(acts, "Save", function()
+    -- Save: перезапись выбранного (или введённого имени) с подтверждением
+    local saveArmed, saveArmedName = 0, nil
+    addButton(acts, "Save (overwrite)", function()
         local target = Cfg.Slot
         if Cfg.NewName and Cfg.clean(Cfg.NewName) ~= "" then target = Cfg.clean(Cfg.NewName) end
+        if Cfg.exists(target) and not (saveArmedName == target and os.clock() - saveArmed < 4) then
+            saveArmed, saveArmedName = os.clock(), target
+            note("вы уверены, что хотите переписать кфг «" .. target .. "»? нажмите Save ещё раз (4 с)", "x")
+            return
+        end
+        saveArmedName = nil
         local ok, name = Cfg.save(target)
         if ok then
             Cfg.Slot = name
@@ -4242,6 +5236,40 @@ do
             note("save failed (no writefile?)", "x")
         end
     end)
+
+    -- Save as new: новое имя из поля, либо cfg_1, cfg_2, ...
+    addButton(acts, "Save as new", function()
+        local name = Cfg.NewName and Cfg.clean(Cfg.NewName) or ""
+        if name == "" then
+            local n = 1
+            while Cfg.exists("cfg_" .. n) do n += 1 end
+            name = "cfg_" .. n
+        elseif Cfg.exists(name) then
+            note("«" .. name .. "» уже есть, для перезаписи жми Save (overwrite)", "x")
+            return
+        end
+        local ok, saved = Cfg.save(name)
+        if ok then
+            Cfg.Slot = saved
+            Cfg.saveMeta()
+            local shown = refreshList()
+            note("created: " .. saved .. (shown and "" or " (new name appears in the list after re-execute)"))
+        else
+            note("save failed (no writefile?)", "x")
+        end
+    end)
+
+    -- листание списка (работает, даже если дропдаун не обновляется на лету)
+    local function step(dir)
+        local list = Cfg.list()
+        local idx = table.find(list, Cfg.Slot) or 1
+        idx = ((idx - 1 + dir) % #list) + 1
+        Cfg.Slot = list[idx]
+        Cfg.saveMeta()
+        note("selected: " .. Cfg.Slot .. " (" .. idx .. "/" .. #list .. ")", "check")
+    end
+    addButton(acts, "Prev config", function() step(-1) end)
+    addButton(acts, "Next config", function() step(1) end)
 
     addButton(acts, "Load", function()
         if Cfg.load(Cfg.Slot) then
