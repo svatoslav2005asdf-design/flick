@@ -489,7 +489,7 @@ do
         _sig = nil,
         Keys = {
             "SilentAim", "SilentAimTarget", "SilentAimFOVEnabled", "SilentAimFOV",
-            "PulseAimEnabled", "PulseAimMinFOV", "PulseAimMaxFOV", "PulseAimSmoothness", "PulseAimSpeed", "PulseAimMoveThreshold", "PulseAimColorHex", "PulseAimRainbow", "PulseAimShowCircle",
+            "PulseAimEnabled", "PulseAimOscillate", "PulseAimOscAmplitude", "PulseAimOscSpeed", "PulseAimFilled", "PulseAimFillOpacity", "SilentAimFilled", "SilentAimFillOpacity", "PulseAimMinFOV", "PulseAimMaxFOV", "PulseAimSmoothness", "PulseAimSpeed", "PulseAimMoveThreshold", "PulseAimColorHex", "PulseAimRainbow", "PulseAimShowCircle",
             "RageBotEnabled", "RageBotHitbox", "RageBotAutoFire",
             "AttackIntervalEnabled", "AttackInterval", "AttackHold", "AttackJitter",
             "PenetrationEnabled", "PenetrationMax",
@@ -503,7 +503,7 @@ do
             "EspEnabled", "EspBoxType", "EspFill", "EspFillAlpha", "EspOutline", "EspThickness", "EspHealth",
             "EspHealthGradient", "EspName", "EspDist", "EspTracers", "EspTracerFrom", "EspSkeleton", "EspTeamCheck",
             "KillFxEnabled", "KillFxName", "KillFxColorHex", "HatEnabled", "HatDetail", "HatSize", "HatHeight",
-            "HatAlpha", "HatRotate", "HatRainbow", "HatColorHex", "JumpFxEnabled", "JumpShape", "JumpOnJump",
+            "HatAlpha", "HatRibs", "HatRim", "HatRotate", "HatRainbow", "HatColorHex", "JumpFxEnabled", "JumpShape", "JumpOnJump",
             "JumpOnLand", "JumpSize", "JumpDur", "JumpColorHex",
             "EspMaxDist", "EspBoxColorHex", "EspFillColorHex", "EspHealthColorHex", "EspNameColorHex",
             "EspDistColorHex", "EspSkelColorHex", "EspTracerColorHex",
@@ -812,7 +812,7 @@ do
     local e, d = getgenv(), {
         KillFxEnabled = false, KillFxName = "Lightning", KillFxColorHex = "78BEFF",
         HatEnabled = false, HatDetail = "Simple", HatSize = 3, HatHeight = 0, HatAlpha = 60, HatRotate = false,
-        HatRainbow = false, HatColorHex = "FF4D6D",
+        HatRainbow = false, HatColorHex = "FF4D6D", HatRibs = 16, HatRim = true,
         JumpFxEnabled = false, JumpShape = "Circle", JumpOnJump = true, JumpOnLand = true, JumpSize = 6, JumpDur = 8,
         JumpColorHex = "FF4D6D",
     }
@@ -835,6 +835,7 @@ do
     local g = getgenv()
     local d = { PulseAimEnabled=false, PulseAimMinFOV=8, PulseAimMaxFOV=55,
         PulseAimSmoothness=8, PulseAimSpeed=1, PulseAimMoveThreshold=1.5,
+        PulseAimOscillate=true, PulseAimOscAmplitude=5, PulseAimOscSpeed=1.5, PulseAimFilled=false, PulseAimFillOpacity=20, SilentAimFilled=false, SilentAimFillOpacity=20,
         PulseAimColorHex="B46CFF", PulseAimRainbow=false, PulseAimShowCircle=true }
     for k,v in pairs(d) do if g[k] == nil then g[k]=v end end
 end
@@ -1005,6 +1006,13 @@ function PulseAim.update(dt)
             or hum:GetState() == Enum.HumanoidStateType.Freefall
     end
     local goal = moving and hi or lo
+    -- Oscillation continues while moving and standing, independently of movement transition.
+    if g.PulseAimOscillate then
+        local amplitude = math.min(tonumber(g.PulseAimOscAmplitude) or 5, (hi-lo)/2)
+        local speed = math.max(0, tonumber(g.PulseAimOscSpeed) or 1.5)
+        local center = moving and (hi-amplitude) or (lo+amplitude)
+        goal = math.clamp(center + amplitude * math.sin(os.clock()*speed*math.pi*2), lo, hi)
+    end
     if PulseAim.current == nil then PulseAim.current = goal end
     local rate = math.max(0.1, (tonumber(g.PulseAimSmoothness) or 8) * (tonumber(g.PulseAimSpeed) or 1))
     PulseAim.current += (goal - PulseAim.current) * (1 - math.exp(-rate * math.clamp(dt or 0,0,0.2)))
@@ -1403,6 +1411,16 @@ do
         Callback=function(v) g.PulseAimSpeed=v/10 end})
     sec:AddSlider({Name="Movement threshold (x0.1)", Flag="PulseAimThresholdSlider", Min=1, Max=100, Default=math.floor(g.PulseAimMoveThreshold*10+0.5),
         Callback=function(v) g.PulseAimMoveThreshold=v/10 end})
+    sec:AddToggle({Name="Continuous pulse (even while moving)", Flag="PulseAimOscillate", Default=g.PulseAimOscillate,
+        Callback=function(v) g.PulseAimOscillate=v end})
+    sec:AddSlider({Name="Pulse amplitude (degrees)", Flag="PulseAimOscAmplitude", Min=0, Max=30, Default=g.PulseAimOscAmplitude,
+        Callback=function(v) g.PulseAimOscAmplitude=v end})
+    sec:AddSlider({Name="Pulse frequency (x0.1 Hz)", Flag="PulseAimOscSpeed", Min=1, Max=50, Default=math.floor(g.PulseAimOscSpeed*10),
+        Callback=function(v) g.PulseAimOscSpeed=v/10 end})
+    sec:AddToggle({Name="Filled Pulse FOV", Flag="PulseAimFilled", Default=g.PulseAimFilled,
+        Callback=function(v) g.PulseAimFilled=v end})
+    sec:AddSlider({Name="Pulse fill opacity (%)", Flag="PulseAimFillOpacity", Min=0, Max=90, Default=g.PulseAimFillOpacity,
+        Callback=function(v) g.PulseAimFillOpacity=v end})
     sec:AddToggle({Name="Show Pulse FOV", Flag="PulseAimShowCircle", Default=g.PulseAimShowCircle,
         Callback=function(v) g.PulseAimShowCircle=v end})
     sec:AddToggle({Name="Rainbow Pulse", Flag="PulseAimRainbow", Default=g.PulseAimRainbow,
@@ -1413,6 +1431,11 @@ do
         Default=Color3.fromRGB(math.floor(n/65536)%256, math.floor(n/256)%256, n%256),
         Callback=function(c) g.PulseAimColorHex=string.format("%02X%02X%02X",math.floor(c.R*255+0.5),math.floor(c.G*255+0.5),math.floor(c.B*255+0.5)) end})
 end
+
+v16:AddToggle({Name="Filled Silent FOV", Flag="SilentAimFilled", Default=getgenv().SilentAimFilled,
+    Callback=function(v) getgenv().SilentAimFilled=v end})
+v16:AddSlider({Name="Silent fill opacity (%)", Flag="SilentAimFillOpacity", Min=0, Max=90,
+    Default=getgenv().SilentAimFillOpacity, Callback=function(v) getgenv().SilentAimFillOpacity=v end})
 
 local PlayerGui = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
@@ -1476,6 +1499,10 @@ local function updateFOVCircle(dt)
         uiGradient.Color = ColorSequence.new{ColorSequenceKeypoint.new(0,Color3.new(0,0,0)),ColorSequenceKeypoint.new(0.5,Color3.new(1,1,1)),ColorSequenceKeypoint.new(1,Color3.new(0,0,0))}
     end
     radius = math.clamp(radius, 5, 3000)
+    local fill = (pulseOn and g.PulseAimFilled) or (not pulseOn and silentOn and g.SilentAimFilled)
+    local opacity = pulseOn and (g.PulseAimFillOpacity or 20) or (g.SilentAimFillOpacity or 20)
+    fovCircleFrame.BackgroundColor3 = uiStroke.Color
+    fovCircleFrame.BackgroundTransparency = fill and (1 - math.clamp(opacity,0,90)/100) or 1
     fovCircleFrame.Size = UDim2.fromOffset(radius*2, radius*2)
     fovCircleFrame.Visible = (pulseOn and g.PulseAimShowCircle) or (not pulseOn and (silentOn or wallbangOn))
 end
@@ -5570,19 +5597,20 @@ do
 
     -- ---------------- China hat ----------------
     local hatCol = fromHex(env.HatColorHex, Color3.fromRGB(255, 77, 109))
-    local hat = { discs = {}, balls = {}, key = nil, rot = 0 }
+    local hat = { discs = {}, balls = {}, ribs = {}, key = nil, rot = 0 }
 
     local function clearHat()
         for _, d in ipairs(hat.discs) do d.p:Destroy() end
         for _, b in ipairs(hat.balls) do b.p:Destroy() end
-        hat.discs, hat.balls, hat.key = {}, {}, nil
+        for _, rib in ipairs(hat.ribs) do rib.p:Destroy() end
+        hat.discs, hat.balls, hat.ribs, hat.key = {}, {}, {}, nil
     end
 
     local function buildHat()
         clearHat()
         local R = env.HatSize or 3
-        local detailed = env.HatDetail == "Detailed"
-        local n = detailed and 22 or 6
+        local detailed = env.HatDetail == "Detailed" or env.HatDetail == "Ultra"
+        local n = env.HatDetail == "Ultra" and 36 or (detailed and 22 or 6)
         local H = R * 0.55
         for i = 1, n do
             local r = R * (1 - (i - 0.5) / n)
@@ -5591,6 +5619,12 @@ do
             hat.discs[#hat.discs + 1] = { p = p, y = (i - 0.5) * H / n, hue = i / n }
         end
         if detailed then
+            local ribCount = math.clamp(tonumber(env.HatRibs) or 16, 4, 48)
+            local slant = Vector3.new(R, -H, 0).Magnitude
+            for k = 0, ribCount-1 do
+                local rib = mk(Vector3.new(0.045, slant, 0.045), CFrame.new(), hatCol, NEON, 0.1)
+                hat.ribs[#hat.ribs+1] = {p=rib, ang=k/ribCount*2*PI, hue=k/ribCount}
+            end
             for k = 0, 23 do
                 local p = mk(Vector3.one * 0.25, CFrame.new(), hatCol, NEON, 0.2, true)
                 hat.balls[#hat.balls + 1] = { p = p, ang = k / 24 * 2 * PI, r = R, y = 0.05 }
@@ -5598,7 +5632,7 @@ do
             local tip = mk(Vector3.one * 0.35, CFrame.new(), Color3.new(1, 1, 1), NEON, 0, true)
             hat.balls[#hat.balls + 1] = { p = tip, ang = 0, r = 0, y = H + 0.1 }
         end
-        hat.key = tostring(env.HatDetail) .. "|" .. tostring(env.HatSize)
+        hat.key = tostring(env.HatDetail) .. "|" .. tostring(env.HatSize) .. "|" .. tostring(env.HatRibs)
     end
 
     RunService.RenderStepped:Connect(function(dt)
@@ -5609,10 +5643,22 @@ do
         local char = lp.Character
         local head = char and char:FindFirstChild("Head")
         if not head then return end
-        if hat.key ~= tostring(env.HatDetail) .. "|" .. tostring(env.HatSize) then buildHat() end
+        if hat.key ~= tostring(env.HatDetail) .. "|" .. tostring(env.HatSize) .. "|" .. tostring(env.HatRibs) then buildHat() end
         if env.HatRotate then hat.rot += dt * 1.5 end
         local base = head.Position + Vector3.new(0, head.Size.Y / 2 + 0.1 + (env.HatHeight or 0) / 10, 0)
         local transp = 1 - (env.HatAlpha or 60) / 100
+        local R = env.HatSize or 3
+        local H = R * 0.55
+        for _, rib in ipairs(hat.ribs) do
+            local a = rib.ang + hat.rot
+            local tip = base + Vector3.new(0,H,0)
+            local edge = base + Vector3.new(math.cos(a)*R,0,math.sin(a)*R)
+            local mid = (tip+edge)/2
+            rib.p.Size = Vector3.new(0.045,(tip-edge).Magnitude,0.045)
+            rib.p.CFrame = CFrame.lookAt(mid,edge) * CFrame.Angles(math.pi/2,0,0)
+            rib.p.Transparency = transp
+            rib.p.Color = env.HatRainbow and Color3.fromHSV((rib.hue+os.clock()*0.4)%1,1,1) or hatCol
+        end
         for _, d in ipairs(hat.discs) do
             d.p.CFrame = CFrame.new(base + Vector3.new(0, d.y, 0)) * CFrame.Angles(0, hat.rot, PI / 2)
             d.p.Transparency = transp
@@ -5727,8 +5773,10 @@ do
     local sh = t1.mFx:AddSection({ Position = "center", Name = "CHINA HAT" })
     sh:AddToggle({ Name = "China hat", Flag = "HatEnabledT", Default = env.HatEnabled,
         Callback = function(p) env.HatEnabled = p end })
-    sh:AddDropdown({ Name = "Detail", Flag = "HatDetailD", Values = { "Simple", "Detailed" }, Default = env.HatDetail,
+    sh:AddDropdown({ Name = "Detail", Flag = "HatDetailD", Values = { "Simple", "Detailed", "Ultra" }, Default = env.HatDetail,
         Callback = function(p) env.HatDetail = p end })
+    sh:AddSlider({ Name = "Ribs", Flag = "HatRibs", Min = 4, Max = 48, Default = env.HatRibs or 16,
+        Callback = function(p) env.HatRibs = p end })
     sh:AddSlider({ Name = "Size", Flag = "HatSizeS", Min = 1, Max = 8, Default = math.clamp(env.HatSize, 1, 8),
         Callback = function(p) env.HatSize = p end })
     sh:AddSlider({ Name = "Height offset", Flag = "HatHeightS", Min = -10, Max = 30, Default = math.clamp(env.HatHeight, -10, 30),
