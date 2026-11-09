@@ -504,6 +504,7 @@ do
             "JumpOnLand", "JumpSize", "JumpDur", "JumpColorHex",
             "EspMaxDist", "EspBoxColorHex", "EspFillColorHex", "EspHealthColorHex", "EspNameColorHex",
             "EspDistColorHex", "EspSkelColorHex", "EspTracerColorHex",
+            "AutoKnifeEnabled", "AutoKnifeRange", "AutoRefreshEnabled",
         },
     }
 
@@ -740,6 +741,9 @@ t1.value6 = game:GetService("Workspace")
 t1.value7 = t1.value6.CurrentCamera
 t1.value8 = t1.value5.LocalPlayer
 
+getgenv().AutoKnifeEnabled = false
+getgenv().AutoKnifeRange = 7
+getgenv().AutoRefreshEnabled = false
 getgenv().RageBotEnabled = false
 getgenv().RageTarget = "Head"
 getgenv().RageAutoShoot = false
@@ -859,7 +863,8 @@ function getRageBotTarget()
                 local isVisible = not result or result.Instance:IsDescendantOf(char)
                 
                 if isVisible or getgenv().WallbangEnabled then
-                    local dist = (targetPart.Position - cam.CFrame.Position).Magnitude
+                    local root = t1.value8.Character and t1.value8.Character:FindFirstChild("HumanoidRootPart")
+                    local dist = (targetPart.Position - (root and root.Position or cam.CFrame.Position)).Magnitude
                     if dist < closestDist then
                         closestDist = dist
                         closest = targetPart
@@ -1050,6 +1055,78 @@ BulletHandler.Fire = function(data)
     t1.Pen.arm(data)
 
     return oldFire(data)
+end
+
+-- [AUTO KNIFE] Uses the equipped knife Tool and its ordinary Activate action.
+-- Actual damage is validated by the game's server; no client-side instant kill is assumed.
+do
+    local sec = v15:AddSection({ Position = "right", Name = "AUTO KNIFE" })
+    sec:AddToggle({ Name = "Auto Knife", Flag = "AutoKnifeEnabled", Default = getgenv().AutoKnifeEnabled,
+        Callback = function(v) getgenv().AutoKnifeEnabled = v end })
+    sec:AddSlider({ Name = "Knife reach (studs)", Flag = "AutoKnifeRange", Min = 3, Max = 12,
+        Default = getgenv().AutoKnifeRange, Callback = function(v) getgenv().AutoKnifeRange = v end })
+    local function findKnife(char, backpack)
+        for _, folder in ipairs({char, backpack}) do
+            if folder then
+                for _, tool in ipairs(folder:GetChildren()) do
+                    if tool:IsA("Tool") and (tool.Name:lower():find("knife", 1, true) or tool.Name:lower():find("нож", 1, true)) then
+                        return tool
+                    end
+                end
+            end
+        end
+    end
+    task.spawn(function()
+        while task.wait(0.12) do
+            if getgenv().AutoKnifeEnabled then
+                local lp = t1.value8
+                local char = lp.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                if hum and hum.Health > 0 and root then
+                    local nearest, dist = nil, getgenv().AutoKnifeRange or 7
+                    for _, player in ipairs(t1.value5:GetPlayers()) do
+                        if player ~= lp and (not lp.Team or player.Team ~= lp.Team) then
+                            local target = player.Character
+                            local th = target and target:FindFirstChildOfClass("Humanoid")
+                            local tr = target and target:FindFirstChild("HumanoidRootPart")
+                            if th and th.Health > 0 and tr then
+                                local d = (root.Position - tr.Position).Magnitude
+                                if d <= dist then nearest, dist = tr, d end
+                            end
+                        end
+                    end
+                    if nearest then
+                        local knife = findKnife(char, lp:FindFirstChildOfClass("Backpack"))
+                        if knife then
+                            if knife.Parent ~= char then hum:EquipTool(knife) end
+                            if knife.Parent == char then pcall(function() knife:Activate() end) end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- [AUTO REFRESH] Reapply enabled widget callbacks without rebuilding scripts or UI.
+do
+    local sec = vSettings:AddSection({ Position = "left", Name = "MAINTENANCE" })
+    sec:AddToggle({ Name = "Refresh enabled features every 60s", Flag = "AutoRefreshEnabled",
+        Default = getgenv().AutoRefreshEnabled,
+        Callback = function(v) getgenv().AutoRefreshEnabled = v end })
+    task.spawn(function()
+        while task.wait(60) do
+            if getgenv().AutoRefreshEnabled and t1.Reg then
+                for _, flag in ipairs(t1.Reg.order) do
+                    local r = t1.Reg.byFlag[flag]
+                    if r and r.kind == "toggle" and t1.Reg.get(r) == true and r.cb then
+                        pcall(r.cb, true)
+                    end
+                end
+            end
+        end
+    end)
 end
 
 -- ============================================================
@@ -5514,9 +5591,9 @@ do
 
     -- ---------------- окно менеджера (своё, независимое от либы) ----------------
     local C = {
-        bg = Color3.fromRGB(20, 20, 22), panel = Color3.fromRGB(32, 32, 36), line = Color3.fromRGB(62, 62, 68),
-        text = Color3.fromRGB(235, 235, 240), dim = Color3.fromRGB(140, 140, 150), acc = Color3.fromRGB(255, 77, 109),
-        bad = Color3.fromRGB(255, 120, 120), selBg = Color3.fromRGB(52, 34, 40),
+        bg = Color3.fromRGB(13, 17, 28), panel = Color3.fromRGB(25, 32, 48), line = Color3.fromRGB(56, 69, 94),
+        text = Color3.fromRGB(235, 235, 240), dim = Color3.fromRGB(140, 140, 150), acc = Color3.fromRGB(105, 155, 255),
+        bad = Color3.fromRGB(255, 120, 120), selBg = Color3.fromRGB(33, 53, 87),
     }
     local gui, win, box, statusLbl, list, btnSave, btnLoad, btnDel, btnAuto, btnAsave, btnReset
     local sel, armKey, armT = nil, nil, 0
@@ -5638,21 +5715,21 @@ do
         if not placed then placed = tryParent(Players.LocalPlayer:WaitForChild("PlayerGui")) end
 
         win = mk("Frame", {
-            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0, 360, 0.9, 0),
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0, 400, 0.85, 0),
             BackgroundColor3 = C.bg, BorderSizePixel = 0, Active = true,
         }, gui)
-        mk("UISizeConstraint", { MinSize = Vector2.new(280, 320), MaxSize = Vector2.new(360, 480) }, win)
-        round(win, 10)
+        mk("UISizeConstraint", { MinSize = Vector2.new(280, 320), MaxSize = Vector2.new(420, 540) }, win)
+        round(win, 16)
         stroke(win)
 
         -- шапка + перетаскивание
         mk("TextLabel", {
-            Text = "CONFIGS", Font = Enum.Font.GothamBold, TextSize = 15, TextColor3 = C.text, BackgroundTransparency = 1,
+            Text = "◈  CONFIG MANAGER", Font = Enum.Font.GothamBold, TextSize = 15, TextColor3 = C.text, BackgroundTransparency = 1,
             TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.new(0, 14, 0, 0), Size = UDim2.new(1, -60, 0, 38),
         }, win)
         local drag = mk("Frame", { BackgroundTransparency = 1, Active = true, Size = UDim2.new(1, -50, 0, 38) }, win)
         local close = mk("TextButton", {
-            Text = "x", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C.text, BackgroundColor3 = C.panel,
+            Text = "×", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C.text, BackgroundColor3 = C.panel,
             BorderSizePixel = 0, Position = UDim2.new(1, -40, 0, 5), Size = UDim2.new(0, 30, 0, 28),
         }, win)
         round(close, 6)
@@ -5676,7 +5753,7 @@ do
 
         -- имя конфига
         box = mk("TextBox", {
-            Text = "", PlaceholderText = "config name", PlaceholderColor3 = C.dim, ClearTextOnFocus = false,
+            Text = "", PlaceholderText = "Name your preset...", PlaceholderColor3 = C.dim, ClearTextOnFocus = false,
             Font = Enum.Font.Gotham, TextSize = 14, TextColor3 = C.text, BackgroundColor3 = C.panel, BorderSizePixel = 0,
             TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.new(0, 12, 0, 44), Size = UDim2.new(1, -24, 0, 34),
         }, win)
@@ -5690,7 +5767,7 @@ do
         btnDel = button("Delete", r1)
 
         statusLbl = mk("TextLabel", {
-            Text = "pick a config or type a new name", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.dim,
+            Text = "Select a preset or create a new one", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.dim,
             BackgroundTransparency = 1, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
             TextYAlignment = Enum.TextYAlignment.Top, Position = UDim2.new(0, 14, 0, 124), Size = UDim2.new(1, -28, 0, 30),
         }, win)
