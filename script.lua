@@ -139,8 +139,184 @@ local v15 = mkMenu("AIM", "crosshair")
 t1.mVisuals = mkMenu("VISUALS", "eye")
 t1.mMove = mkMenu("MOVEMENT", "move")
 t1.mMisc = mkMenu("MISC", "layers")
-t1.mFx = mkMenu("EFFECTS", "sparkles")
+t1.mFx = mkMenu("EFFECTS", "eye")
 local vSettings = mkMenu("SETTINGS", "cog")
+
+-- ============================================================
+-- [REG] реестр виджетов. ловит каждый AddToggle/AddSlider/AddDropdown/AddColorPicker
+-- (и под-настройки через .Option), чтобы конфиги сохраняли и применяли ВСЕ флаги вживую.
+-- ставится до создания секций; если хук не сработал, конфиги работают по старым env-ключам.
+-- ============================================================
+do
+    local Reg = { byFlag = {}, order = {}, hooked = 0, setter = nil }
+    local METHODS = { AddToggle = "toggle", AddSlider = "slider", AddDropdown = "dropdown", AddColorPicker = "color" }
+    local SETTERS = { "Set", "SetValue", "SetState", "SetToggle", "SetColor", "SetSelected", "SetOption", "SetCurrent" }
+    local seen = setmetatable({}, { __mode = "k" })
+
+    local function toHex(c)
+        return string.format("%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
+    end
+    local function fromHex(h)
+        if type(h) ~= "string" or #h ~= 6 then return nil end
+        local r, g, b = tonumber(h:sub(1, 2), 16), tonumber(h:sub(3, 4), 16), tonumber(h:sub(5, 6), 16)
+        if not (r and g and b) then return nil end
+        return Color3.fromRGB(r, g, b)
+    end
+
+    local function skip(flag)
+        return flag:match("^Cfg") ~= nil or flag:match("^Btn_") ~= nil
+    end
+
+    local hookSection
+    hookSection = function(sec)
+        if type(sec) ~= "table" or seen[sec] then return end
+        seen[sec] = true
+        for method, kind in pairs(METHODS) do
+            local orig = sec[method]
+            if type(orig) == "function" then
+                local ok = pcall(function()
+                    sec[method] = function(self, o, ...)
+                        if type(o) ~= "table" then return orig(self, o, ...) end
+                        local flag = o.Flag
+                        local r
+                        if type(flag) == "string" and not skip(flag) then
+                            r = { flag = flag, kind = kind, cb = o.Callback, default = o.Default, last = o.Default }
+                            o.Callback = function(...)
+                                local v = ...
+                                r.hit = true
+                                r.last = v
+                                if r.cb then return r.cb(...) end
+                            end
+                        end
+                        local el = orig(self, o, ...)
+                        if r then
+                            r.el = el
+                            if not Reg.byFlag[flag] then Reg.order[#Reg.order + 1] = flag end
+                            Reg.byFlag[flag] = r
+                        end
+                        if type(el) == "table" then
+                            local okOpt, opt = pcall(function() return el.Option end)
+                            if okOpt and type(opt) == "table" then hookSection(opt) end
+                        end
+                        return el
+                    end
+                end)
+                if ok then Reg.hooked += 1 end
+            end
+        end
+    end
+
+    function Reg.hookMenu(menu)
+        if type(menu) ~= "table" then return end
+        local orig = menu.AddSection
+        if type(orig) ~= "function" then return end
+        pcall(function()
+            menu.AddSection = function(self, o, ...)
+                local sec = orig(self, o, ...)
+                hookSection(sec)
+                return sec
+            end
+        end)
+    end
+
+    -- текущее значение виджета: .Value если он есть и тип сходится, иначе последнее из callback
+    function Reg.get(r)
+        local v = r.last
+        local el = r.el
+        if type(el) == "table" then
+            local ok, cur = pcall(function() return el.Value end)
+            if ok and cur ~= nil then
+                if r.kind == "toggle" and type(cur) == "boolean" then v = cur
+                elseif r.kind == "slider" and type(cur) == "number" then v = cur
+                elseif r.kind == "dropdown" and (type(cur) == "string" or type(cur) == "table") then v = cur
+                elseif r.kind == "color" and typeof(cur) == "Color3" then v = cur end
+            end
+        end
+        return v
+    end
+
+    function Reg.encode(v)
+        if typeof(v) == "Color3" then return { __c = toHex(v) } end
+        return v
+    end
+
+    function Reg.decode(r, raw)
+        if r.kind == "color" then
+            if type(raw) == "table" and type(raw.__c) == "string" then return fromHex(raw.__c) end
+            return nil
+        elseif r.kind == "toggle" then
+            if type(raw) == "boolean" then return raw end
+        elseif r.kind == "slider" then
+            if type(raw) == "number" then return raw end
+        elseif r.kind == "dropdown" then
+            if type(raw) == "string" or type(raw) == "table" then return raw end
+        end
+        return nil
+    end
+
+    local function same(a, b)
+        if typeof(a) == "Color3" and typeof(b) == "Color3" then return toHex(a) == toHex(b) end
+        if type(a) == "table" or type(b) == "table" then return false end
+        return a == b
+    end
+
+    -- применить значение: визуально через сеттер виджета, эффект через callback (если либа сама его не дёрнула)
+    function Reg.apply(r, v)
+        if same(Reg.get(r), v) then return false end
+        r.hit = false
+        local el = r.el
+        if type(el) == "table" then
+            for _, m in ipairs(SETTERS) do
+                local okf, f = pcall(function() return el[m] end)
+                if okf and type(f) == "function" then
+                    if pcall(f, el, v) then
+                        Reg.setter = Reg.setter or m
+                        break
+                    end
+                end
+            end
+        end
+        if not r.hit and r.cb then pcall(r.cb, v) end
+        r.last = v
+        return true
+    end
+
+    -- какой сеттер есть у виджетов (для диагностики в уведомлении)
+    function Reg.probe()
+        for _, flag in ipairs(Reg.order) do
+            local el = Reg.byFlag[flag].el
+            if type(el) == "table" then
+                for _, m in ipairs(SETTERS) do
+                    local okf, f = pcall(function() return el[m] end)
+                    if okf and type(f) == "function" then return m end
+                end
+            end
+        end
+        return nil
+    end
+
+    function Reg.reset()
+        local i = 0
+        for _, flag in ipairs(Reg.order) do
+            local r = Reg.byFlag[flag]
+            if r and r.default ~= nil then
+                Reg.apply(r, r.default)
+                i += 1
+                if i % 12 == 0 then task.wait() end
+            end
+        end
+    end
+
+    Reg.toHex, Reg.fromHex = toHex, fromHex
+    t1.Reg = Reg
+
+    Reg.hookMenu(v15)
+    Reg.hookMenu(t1.mVisuals)
+    Reg.hookMenu(t1.mMove)
+    Reg.hookMenu(t1.mMisc)
+    Reg.hookMenu(t1.mFx)
+    Reg.hookMenu(vSettings)
+end
 
 local v16 = v15:AddSection({
 	Position = "left",
@@ -173,17 +349,22 @@ local v22 = v15:AddSection({
 })
 
 -- ============================================================
--- [CONFIG] core: именованные конфиги через writefile/readfile/delfile
--- LesxovTap/configs/<name>.json, LesxovTap/meta.json (последний выбранный)
+-- [CONFIG] core v2. именованные конфиги: LesxovTap/configs/<name>.json
+-- формат: { version = 2, flags = { <Flag> = value }, env = { <key> = value } }
+--   flags: все виджеты меню через реестр [REG] (применяются вживую, с обновлением ползунков)
+--   env:   служебные ключи getgenv (как в старых конфигах; старый плоский формат тоже читается)
+-- meta.json: { slot, startup, autosave }. startup = конфиг, который грузится при запуске
 -- ============================================================
 do
     local HttpService = game:GetService("HttpService")
+    local Reg = t1.Reg
     local Cfg = {
         Folder = "LesxovTap",
-        Slot = "default",
+        Slot = nil,
+        Startup = nil,
         Autosave = false,
         ready = false,
-        _last = nil,
+        _sig = nil,
         Keys = {
             "SilentAim", "SilentAimTarget", "SilentAimFOVEnabled", "SilentAimFOV",
             "RageBotEnabled", "RageBotHitbox", "RageBotAutoFire",
@@ -208,7 +389,7 @@ do
 
     local fsOk = type(writefile) == "function" and type(readfile) == "function"
         and type(isfile) == "function" and type(isfolder) == "function" and type(makefolder) == "function"
-    local mem = {} -- если у экзекутора нет файловой системы
+    local mem = {} -- если у экзекутора нет файловой системы (живёт до выхода из игры)
 
     local function ensureDirs()
         if not fsOk then return end
@@ -253,7 +434,10 @@ do
     local function file(name) return "configs/" .. name .. ".json" end
 
     function Cfg.exists(name)
-        return rd(file(name)) ~= nil
+        name = Cfg.clean(name)
+        if name == "" then return false end
+        local s = rd(file(name))
+        return s ~= nil and s ~= ""
     end
 
     function Cfg.list()
@@ -262,79 +446,131 @@ do
             pcall(function()
                 for _, f in ipairs(listfiles(Cfg.Folder .. "/configs")) do
                     local n = tostring(f):match("([^/\\]+)%.json$")
-                    if n and not seen[n] then seen[n] = true; out[#out + 1] = n end
+                    if n and not seen[n] and Cfg.exists(n) then seen[n] = true; out[#out + 1] = n end
                 end
             end)
         else
-            for k in pairs(mem) do
+            for k, v in pairs(mem) do
                 local n = k:match("^configs/(.+)%.json$")
-                if n and not seen[n] then seen[n] = true; out[#out + 1] = n end
+                if n and v ~= "" and not seen[n] then seen[n] = true; out[#out + 1] = n end
             end
         end
-        if not seen["default"] then out[#out + 1] = "default" end
-        table.sort(out)
+        table.sort(out, function(a, b) return a:lower() < b:lower() end)
         return out
+    end
+
+    local function simple(v)
+        local t = type(v)
+        return t == "boolean" or t == "number" or t == "string"
     end
 
     function Cfg.snapshot()
-        local out, env = {}, getgenv()
-        for _, k in ipairs(Cfg.Keys) do
-            if env[k] ~= nil then out[k] = env[k] end
+        local data = { version = 2, flags = {}, env = {} }
+        for _, flag in ipairs(Reg.order) do
+            local r = Reg.byFlag[flag]
+            local v = r and Reg.get(r)
+            if v ~= nil then data.flags[flag] = Reg.encode(v) end
         end
-        return out
-    end
-
-    function Cfg.save(name)
-        name = Cfg.clean(name or Cfg.Slot)
-        if name == "" then name = "default" end
-        local json = HttpService:JSONEncode(Cfg.snapshot())
-        local ok = wr(file(name), json)
-        if ok then Cfg._last = json end
-        return ok, name
-    end
-
-    function Cfg.load(name)
-        name = Cfg.clean(name or Cfg.Slot)
-        local data = dec(rd(file(name)))
-        if not data then return false end
         local env = getgenv()
         for _, k in ipairs(Cfg.Keys) do
-            local v = data[k]
-            if v ~= nil and type(v) == type(env[k]) then env[k] = v end
+            if simple(env[k]) then data.env[k] = env[k] end
         end
-        Cfg._last = HttpService:JSONEncode(Cfg.snapshot())
-        return true
+        return data
     end
 
-    function Cfg.delete(name)
-        name = Cfg.clean(name or Cfg.Slot)
-        if not Cfg.exists(name) then return false end
-        if not fsOk then
-            mem[file(name)] = nil
-            return true
+    -- детерминированная подпись состояния (JSONEncode не гарантирует порядок ключей)
+    local function sig(data)
+        local parts = {}
+        for k, v in pairs(data.flags) do
+            parts[#parts + 1] = k .. "=" .. (type(v) == "table" and (v.__c or HttpService:JSONEncode(v)) or tostring(v))
         end
-        local ok = pcall(function()
-            local p = Cfg.Folder .. "/" .. file(name)
-            if type(delfile) == "function" then
-                delfile(p)
-            else
-                writefile(p, "") -- нет delfile: файл обнуляем, dec() его проигнорирует
-            end
-        end)
-        return ok
+        for k, v in pairs(data.env) do parts[#parts + 1] = "e:" .. k .. "=" .. tostring(v) end
+        table.sort(parts)
+        return table.concat(parts, "|")
     end
 
     function Cfg.saveMeta()
-        wr("meta.json", HttpService:JSONEncode({ slot = Cfg.Slot, autosave = Cfg.Autosave }))
+        wr("meta.json", HttpService:JSONEncode({ slot = Cfg.Slot or "", startup = Cfg.Startup or "", autosave = Cfg.Autosave }))
+    end
+
+    function Cfg.save(name)
+        name = Cfg.clean(name)
+        if name == "" then return false, "empty name" end
+        local data = Cfg.snapshot()
+        local okEnc, json = pcall(HttpService.JSONEncode, HttpService, data)
+        if not okEnc then return false, "encode failed" end
+        if not wr(file(name), json) then return false, "write failed" end
+        Cfg.Slot = name
+        Cfg._sig = sig(data)
+        Cfg.saveMeta()
+        return true, name, #Reg.order
+    end
+
+    local function applyEnv(data)
+        local env = getgenv()
+        local map = data.env or (data.version == nil and data or nil)
+        if type(map) ~= "table" then return end
+        for _, k in ipairs(Cfg.Keys) do
+            local v = map[k]
+            if v ~= nil and type(v) == type(env[k]) then env[k] = v end
+        end
+    end
+
+    -- yield-safe (task.wait внутри), вызывать из task.spawn
+    function Cfg.load(name)
+        name = Cfg.clean(name)
+        local data = dec(rd(file(name)))
+        if not data then return false, 0 end
+        applyEnv(data)
+        local n, i = 0, 0
+        if type(data.flags) == "table" then
+            for flag, raw in pairs(data.flags) do
+                local r = Reg.byFlag[flag]
+                if r then
+                    local v = Reg.decode(r, raw)
+                    if v ~= nil and Reg.apply(r, v) then n += 1 end
+                    i += 1
+                    if i % 12 == 0 then task.wait() end
+                end
+            end
+        end
+        Cfg.Slot = name
+        Cfg._sig = sig(Cfg.snapshot())
+        Cfg.saveMeta()
+        return true, n
+    end
+
+    function Cfg.delete(name)
+        name = Cfg.clean(name)
+        if not Cfg.exists(name) then return false end
+        if not fsOk then
+            mem[file(name)] = nil
+        else
+            local ok = pcall(function()
+                local p = Cfg.Folder .. "/" .. file(name)
+                if type(delfile) == "function" then
+                    delfile(p)
+                else
+                    writefile(p, "") -- нет delfile: файл обнуляем, exists() его уже не видит
+                end
+            end)
+            if not ok then return false end
+        end
+        if Cfg.Slot == name then Cfg.Slot = nil end
+        if Cfg.Startup == name then Cfg.Startup = nil end
+        Cfg.saveMeta()
+        return true
     end
 
     function Cfg.resetValues()
         local env = getgenv()
         for k, v in pairs(Cfg.defaults or {}) do env[k] = v end
+        if Reg and Reg.reset then Reg.reset() end
     end
 
+    -- ранняя загрузка (до построения меню): только env, чтобы виджеты родились с нужными Default
     function Cfg.init()
-        Cfg.defaults = Cfg.snapshot()
+        Cfg.defaults = Cfg.snapshot().env
         ensureDirs()
         -- миграция со старого формата LesxovTap/<slot>.json
         pcall(function()
@@ -344,18 +580,31 @@ do
         end)
         local meta = dec(rd("meta.json"))
         if meta then
-            if type(meta.slot) == "string" and Cfg.exists(Cfg.clean(meta.slot)) then Cfg.Slot = Cfg.clean(meta.slot) end
             if type(meta.autosave) == "boolean" then Cfg.Autosave = meta.autosave end
+            -- старый meta хранил только slot (его грузили всегда), новый хранит startup
+            local s = meta.startup
+            if s == nil then s = meta.slot end
+            if type(s) == "string" and s ~= "" and Cfg.exists(s) then Cfg.Startup = Cfg.clean(s) end
+            if type(meta.slot) == "string" and meta.slot ~= "" and Cfg.exists(meta.slot) then Cfg.Slot = Cfg.clean(meta.slot) end
         end
-        Cfg.load()
+        if Cfg.Startup then
+            local data = dec(rd(file(Cfg.Startup)))
+            if data then applyEnv(data) end
+        end
+    end
+
+    -- поздняя загрузка (после построения меню): flags применяются вживую
+    function Cfg.finish()
+        if Cfg.Startup then pcall(Cfg.load, Cfg.Startup) end
+        Cfg._sig = sig(Cfg.snapshot())
         Cfg.ready = true
     end
 
     task.spawn(function()
         while task.wait(2) do
-            if Cfg.ready and Cfg.Autosave and Cfg.exists(Cfg.Slot) then
-                local ok, json = pcall(function() return HttpService:JSONEncode(Cfg.snapshot()) end)
-                if ok and json ~= Cfg._last then pcall(Cfg.save) end
+            if Cfg.ready and Cfg.Autosave and Cfg.Slot and Cfg.exists(Cfg.Slot) then
+                local ok, data = pcall(Cfg.snapshot)
+                if ok and sig(data) ~= Cfg._sig then pcall(Cfg.save, Cfg.Slot) end
             end
         end
     end)
@@ -1988,6 +2237,220 @@ Option5:AddColorPicker({
     end
 end
 })
+-- ============================================================
+-- [LIGHTING] в секцию WORLD: Ambient, Fog color, Time of day, Brightness,
+-- Color correction, Sun rays, Atmosphere, Depth of field, No shadows.
+-- клиентские эффекты Lighting; включённые пункты держатся каждый кадр (игра может их сбрасывать),
+-- выключенные возвращают исходные значения. под-настройки в шестерёнке у каждого пункта.
+-- ============================================================
+do
+    local ok, err = pcall(function()
+        local Lighting = game:GetService("Lighting")
+        local RunService = game:GetService("RunService")
+
+        local orig = {
+            Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient, FogColor = Lighting.FogColor,
+            Brightness = Lighting.Brightness, GlobalShadows = Lighting.GlobalShadows,
+        }
+        local S = {
+            ambient = { on = false, a = Color3.fromRGB(110, 110, 160), o = Color3.fromRGB(110, 110, 160) },
+            fog = { on = false, c = Color3.fromRGB(180, 180, 255) },
+            time = { on = false, v = 12 },
+            bright = { on = false, v = 20 },                       -- x0.1
+            cc = { on = false, sat = 130, con = 110, tint = Color3.fromRGB(255, 255, 255) }, -- 100 = без изменений
+            sun = { on = false, int = 25, spread = 100 },
+            atmo = { on = false, dens = 30, haze = 10, col = Color3.fromRGB(199, 170, 107) },
+            dof = { on = false, far = 50, focus = 40, radius = 30 },
+            shadows = { on = false },
+        }
+
+        local function ensure(class, name)
+            local o = Lighting:FindFirstChild(name)
+            if not o or not o:IsA(class) then
+                if o then o:Destroy() end
+                o = Instance.new(class)
+                o.Name = name
+                o.Parent = Lighting
+            end
+            return o
+        end
+        local function drop(name)
+            local o = Lighting:FindFirstChild(name)
+            if o then o:Destroy() end
+        end
+
+        -- Atmosphere: если у игры уже есть своя, правим её (и запоминаем оригинал), иначе делаем свою
+        local atmoSaved
+        local function atmoTarget()
+            for _, c in ipairs(Lighting:GetChildren()) do
+                if c:IsA("Atmosphere") and c.Name ~= "LT_Atmo" then return c, false end
+            end
+            return ensure("Atmosphere", "LT_Atmo"), true
+        end
+
+        local function refreshEffects()
+            if S.cc.on then
+                local e = ensure("ColorCorrectionEffect", "LT_CC")
+                e.Saturation = (S.cc.sat - 100) / 100
+                e.Contrast = (S.cc.con - 100) / 100
+                e.TintColor = S.cc.tint
+            else
+                drop("LT_CC")
+            end
+
+            if S.sun.on then
+                local e = ensure("SunRaysEffect", "LT_Sun")
+                e.Intensity = S.sun.int / 100
+                e.Spread = S.sun.spread / 100
+            else
+                drop("LT_Sun")
+            end
+
+            if S.atmo.on then
+                local e, own = atmoTarget()
+                if not own and not atmoSaved then
+                    atmoSaved = { inst = e, Density = e.Density, Haze = e.Haze, Color = e.Color }
+                end
+                e.Density = S.atmo.dens / 100
+                e.Haze = S.atmo.haze / 10
+                e.Color = S.atmo.col
+            else
+                drop("LT_Atmo")
+                if atmoSaved then
+                    local a = atmoSaved
+                    if a.inst and a.inst.Parent then
+                        a.inst.Density, a.inst.Haze, a.inst.Color = a.Density, a.Haze, a.Color
+                    end
+                    atmoSaved = nil
+                end
+            end
+
+            if S.dof.on then
+                local e = ensure("DepthOfFieldEffect", "LT_DoF")
+                e.NearIntensity = 0
+                e.FarIntensity = S.dof.far / 100
+                e.FocusDistance = S.dof.focus
+                e.InFocusRadius = S.dof.radius
+            else
+                drop("LT_DoF")
+            end
+        end
+
+        -- World (ambient-тинт выше по файлу) остаётся главным, когда наш Ambient выключен
+        local function restoreAmbient()
+            if t1.value68 then
+                Lighting.Ambient = t1.value69
+                Lighting.OutdoorAmbient = t1.value69
+            else
+                Lighting.Ambient = orig.Ambient
+                Lighting.OutdoorAmbient = orig.OutdoorAmbient
+            end
+        end
+
+        RunService.RenderStepped:Connect(function()
+            if S.ambient.on then
+                if Lighting.Ambient ~= S.ambient.a then Lighting.Ambient = S.ambient.a end
+                if Lighting.OutdoorAmbient ~= S.ambient.o then Lighting.OutdoorAmbient = S.ambient.o end
+            end
+            if S.fog.on and Lighting.FogColor ~= S.fog.c then Lighting.FogColor = S.fog.c end
+            if S.time.on and Lighting.ClockTime ~= S.time.v then Lighting.ClockTime = S.time.v end
+            if S.bright.on then
+                local b = S.bright.v / 10
+                if Lighting.Brightness ~= b then Lighting.Brightness = b end
+            end
+            if S.shadows.on and Lighting.GlobalShadows then Lighting.GlobalShadows = false end
+        end)
+        task.spawn(function()
+            while task.wait(0.5) do pcall(refreshEffects) end -- игра может удалить эффекты
+        end)
+
+        local sec = v19
+
+        -- Ambient
+        local oAmb = sec:AddToggle({ Name = "Ambient", Flag = "LtAmbient", Option = true, Default = false,
+            Callback = function(p)
+                S.ambient.on = p
+                if not p then restoreAmbient() end
+            end }).Option
+        oAmb:AddColorPicker({ Name = "Indoor ambient", Flag = "LtAmbientIn", Default = S.ambient.a,
+            Callback = function(c) S.ambient.a = c end })
+        oAmb:AddColorPicker({ Name = "Outdoor ambient", Flag = "LtAmbientOut", Default = S.ambient.o,
+            Callback = function(c) S.ambient.o = c end })
+
+        -- Fog color (FogStart / FogEnd уже есть выше)
+        local oFog = sec:AddToggle({ Name = "Fog", Flag = "LtFog", Option = true, Default = false,
+            Callback = function(p)
+                S.fog.on = p
+                if not p then Lighting.FogColor = orig.FogColor end
+            end }).Option
+        oFog:AddColorPicker({ Name = "Fog color", Flag = "LtFogColor", Default = S.fog.c,
+            Callback = function(c) S.fog.c = c end })
+
+        -- Time of day
+        local oTime = sec:AddToggle({ Name = "Time of day", Flag = "LtTime", Option = true, Default = false,
+            Callback = function(p) S.time.on = p end }).Option
+        oTime:AddSlider({ Name = "Clock time (hours)", Flag = "LtTimeV", Min = 0, Max = 24, Default = S.time.v,
+            Callback = function(v) S.time.v = v end })
+
+        -- Brightness
+        local oBr = sec:AddToggle({ Name = "Brightness", Flag = "LtBright", Option = true, Default = false,
+            Callback = function(p)
+                S.bright.on = p
+                if not p then Lighting.Brightness = orig.Brightness end
+            end }).Option
+        oBr:AddSlider({ Name = "Level (x0.1)", Flag = "LtBrightV", Min = 0, Max = 100, Default = S.bright.v,
+            Callback = function(v) S.bright.v = v end })
+
+        -- Color correction
+        local oCc = sec:AddToggle({ Name = "Color correction", Flag = "LtCc", Option = true, Default = false,
+            Callback = function(p) S.cc.on = p; pcall(refreshEffects) end }).Option
+        oCc:AddSlider({ Name = "Saturation (100 = normal)", Flag = "LtCcSat", Min = 0, Max = 200, Default = S.cc.sat,
+            Callback = function(v) S.cc.sat = v; pcall(refreshEffects) end })
+        oCc:AddSlider({ Name = "Contrast (100 = normal)", Flag = "LtCcCon", Min = 0, Max = 200, Default = S.cc.con,
+            Callback = function(v) S.cc.con = v; pcall(refreshEffects) end })
+        oCc:AddColorPicker({ Name = "Tint", Flag = "LtCcTint", Default = S.cc.tint,
+            Callback = function(c) S.cc.tint = c; pcall(refreshEffects) end })
+
+        -- Sun rays
+        local oSun = sec:AddToggle({ Name = "Sun rays", Flag = "LtSun", Option = true, Default = false,
+            Callback = function(p) S.sun.on = p; pcall(refreshEffects) end }).Option
+        oSun:AddSlider({ Name = "Intensity", Flag = "LtSunInt", Min = 0, Max = 100, Default = S.sun.int,
+            Callback = function(v) S.sun.int = v; pcall(refreshEffects) end })
+        oSun:AddSlider({ Name = "Spread", Flag = "LtSunSpr", Min = 0, Max = 100, Default = S.sun.spread,
+            Callback = function(v) S.sun.spread = v; pcall(refreshEffects) end })
+
+        -- Atmosphere
+        local oAt = sec:AddToggle({ Name = "Atmosphere", Flag = "LtAtmo", Option = true, Default = false,
+            Callback = function(p) S.atmo.on = p; pcall(refreshEffects) end }).Option
+        oAt:AddSlider({ Name = "Density", Flag = "LtAtmoDens", Min = 0, Max = 100, Default = S.atmo.dens,
+            Callback = function(v) S.atmo.dens = v; pcall(refreshEffects) end })
+        oAt:AddSlider({ Name = "Haze", Flag = "LtAtmoHaze", Min = 0, Max = 100, Default = S.atmo.haze,
+            Callback = function(v) S.atmo.haze = v; pcall(refreshEffects) end })
+        oAt:AddColorPicker({ Name = "Atmosphere color", Flag = "LtAtmoCol", Default = S.atmo.col,
+            Callback = function(c) S.atmo.col = c; pcall(refreshEffects) end })
+
+        -- Depth of field
+        local oDof = sec:AddToggle({ Name = "Depth of field", Flag = "LtDof", Option = true, Default = false,
+            Callback = function(p) S.dof.on = p; pcall(refreshEffects) end }).Option
+        oDof:AddSlider({ Name = "Far blur", Flag = "LtDofFar", Min = 0, Max = 100, Default = S.dof.far,
+            Callback = function(v) S.dof.far = v; pcall(refreshEffects) end })
+        oDof:AddSlider({ Name = "Focus distance", Flag = "LtDofFocus", Min = 0, Max = 500, Default = S.dof.focus,
+            Callback = function(v) S.dof.focus = v; pcall(refreshEffects) end })
+        oDof:AddSlider({ Name = "In-focus radius", Flag = "LtDofRad", Min = 0, Max = 500, Default = S.dof.radius,
+            Callback = function(v) S.dof.radius = v; pcall(refreshEffects) end })
+
+        -- No shadows
+        sec:AddToggle({ Name = "No shadows", Flag = "LtShadows", Default = false,
+            Callback = function(p)
+                S.shadows.on = p
+                if not p then Lighting.GlobalShadows = orig.GlobalShadows end
+            end })
+    end)
+    if not ok then
+        warn("[LIGHTING] " .. tostring(err))
+        pcall(function() v11:Notify({ Title = "LIGHTING", Content = "failed: " .. tostring(err), Icon = "x" }) end)
+    end
+end
 -- ============================================================
 -- [ESP] Drawing API: 2D box / corners / 3D box, fill, health bar, name,
 -- distance, skeleton, tracers. у каждого элемента свой цвет.
@@ -5138,11 +5601,15 @@ end
 
 -- ============================================================
 -- [CONFIG + THEME] SETTINGS tab
--- CONFIG: выбор из списка, имя для нового, кнопки Save / Load / Delete / Reset
+-- CONFIG: кнопка открывает менеджер конфигов (имя, список, Save/Load/Delete, autoload/autosave)
 -- THEME: пресеты акцентного цвета + Custom (hue/sat)
 -- ============================================================
 do
     local Cfg = t1.Cfg
+    local Reg = t1.Reg
+    local UIS = game:GetService("UserInputService")
+    local Players = game:GetService("Players")
+    local kManagerKey = Enum.KeyCode.K -- открыть/закрыть менеджер конфигов (на телефоне кнопка в SETTINGS)
     local t0 = os.clock() -- виджеты могут дёрнуть callback при создании
 
     local function note(text, icon)
@@ -5166,145 +5633,316 @@ do
         })
     end
 
-    local left = vSettings:AddSection({ Position = "left", Name = "CONFIG" })
+    -- ---------------- окно менеджера (своё, независимое от либы) ----------------
+    local C = {
+        bg = Color3.fromRGB(20, 20, 22), panel = Color3.fromRGB(32, 32, 36), line = Color3.fromRGB(62, 62, 68),
+        text = Color3.fromRGB(235, 235, 240), dim = Color3.fromRGB(140, 140, 150), acc = Color3.fromRGB(255, 77, 109),
+        bad = Color3.fromRGB(255, 120, 120), selBg = Color3.fromRGB(52, 34, 40),
+    }
+    local gui, win, box, statusLbl, list, btnSave, btnLoad, btnDel, btnAuto, btnAsave, btnReset
+    local sel, armKey, armT = nil, nil, 0
 
-    local slotDd = left:AddDropdown({
-        Name = "Config",
-        Flag = "CfgSlot",
-        Values = Cfg.list(),
-        Default = Cfg.Slot,
-        Callback = function(p)
-            if type(p) == "string" then
-                Cfg.Slot = p
-                Cfg.saveMeta()
-            end
-        end
-    })
+    local function mk(class, props, parent)
+        local o = Instance.new(class)
+        for k, v in pairs(props) do o[k] = v end
+        if parent then o.Parent = parent end
+        return o
+    end
+    local function round(o, r) mk("UICorner", { CornerRadius = UDim.new(0, r or 6) }, o) end
+    local function stroke(o, col) mk("UIStroke", { Color = col or C.line, Thickness = 1 }, o) end
 
-    -- поле имени (если у либы есть текстбокс); пусто = сохраняем в выбранный конфиг
-    for _, method in ipairs({ "AddTextBox", "AddTextbox", "AddInput" }) do
-        local ok = pcall(function()
-            left[method](left, {
-                Name = "New config name",
-                Flag = "CfgNewName",
-                Placeholder = "name (empty = selected config)",
-                Default = "",
-                Callback = function(v) Cfg.NewName = tostring(v or "") end
-            })
-        end)
-        if ok then break end
+    local function button(text, parent)
+        local b = mk("TextButton", {
+            Text = text, Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = C.text,
+            BackgroundColor3 = C.panel, BorderSizePixel = 0, AutoButtonColor = true,
+            Size = UDim2.new(1 / 3, -4, 1, 0),
+        }, parent)
+        round(b, 6)
+        stroke(b)
+        return b
     end
 
-    left:AddToggle({
-        Name = "Autosave selected config (every 2s)",
-        Flag = "CfgAutosave",
-        Default = Cfg.Autosave,
-        Callback = function(p)
-            Cfg.Autosave = p
-            Cfg.saveMeta()
-        end
-    })
+    local function row(parent, y, h)
+        local f = mk("Frame", { BackgroundTransparency = 1, Position = UDim2.new(0, 12, 0, y), Size = UDim2.new(1, -24, 0, h) }, parent)
+        mk("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, f)
+        return f
+    end
 
-    local function refreshList()
-        local list = Cfg.list()
-        for _, m in ipairs({ "SetValues", "Refresh", "UpdateValues", "SetOptions", "SetList" }) do
-            if pcall(function() slotDd[m](slotDd, list) end) then return true end
+    local function say(text, bad)
+        if not statusLbl then return end
+        statusLbl.Text = text
+        statusLbl.TextColor3 = bad and C.bad or C.dim
+    end
+
+    local function target()
+        local typed = Cfg.clean(box.Text)
+        if typed ~= "" then return typed end
+        return sel
+    end
+
+    -- двойное нажатие: первое взводит кнопку на 4 секунды, второе выполняет
+    local function confirm(key, name, btn, base, label)
+        local k = key .. ":" .. name
+        if armKey == k and os.clock() - armT < 4 then
+            armKey = nil
+            btn.Text = base
+            return true
         end
+        armKey, armT = k, os.clock()
+        btn.Text = label
+        task.delay(4, function()
+            if btn.Parent and armKey == k then
+                armKey = nil
+                btn.Text = base
+            end
+        end)
         return false
     end
 
-    local acts = vSettings:AddSection({ Position = "center", Name = "ACTIONS" })
-
-    -- Save: перезапись выбранного (или введённого имени) с подтверждением
-    local saveArmed, saveArmedName = 0, nil
-    addButton(acts, "Save (overwrite)", function()
-        local target = Cfg.Slot
-        if Cfg.NewName and Cfg.clean(Cfg.NewName) ~= "" then target = Cfg.clean(Cfg.NewName) end
-        if Cfg.exists(target) and not (saveArmedName == target and os.clock() - saveArmed < 4) then
-            saveArmed, saveArmedName = os.clock(), target
-            note("вы уверены, что хотите переписать кфг «" .. target .. "»? нажмите Save ещё раз (4 с)", "x")
-            return
+    local refresh
+    refresh = function()
+        if not list then return end
+        for _, ch in ipairs(list:GetChildren()) do
+            if ch:IsA("GuiObject") then ch:Destroy() end
         end
-        saveArmedName = nil
-        local ok, name = Cfg.save(target)
-        if ok then
-            Cfg.Slot = name
-            Cfg.saveMeta()
-            local shown = refreshList()
-            note("saved: " .. name .. (shown and "" or " (new name appears in the list after re-execute)"))
-        else
-            note("save failed (no writefile?)", "x")
+        local names = Cfg.list()
+        if #names == 0 then
+            mk("TextLabel", {
+                Text = "no configs yet. type a name and press Save", Font = Enum.Font.Gotham, TextSize = 12,
+                TextColor3 = C.dim, BackgroundTransparency = 1, TextWrapped = true, Size = UDim2.new(1, -6, 0, 40),
+            }, list)
         end
-    end)
-
-    -- Save as new: новое имя из поля, либо cfg_1, cfg_2, ...
-    addButton(acts, "Save as new", function()
-        local name = Cfg.NewName and Cfg.clean(Cfg.NewName) or ""
-        if name == "" then
-            local n = 1
-            while Cfg.exists("cfg_" .. n) do n += 1 end
-            name = "cfg_" .. n
-        elseif Cfg.exists(name) then
-            note("«" .. name .. "» уже есть, для перезаписи жми Save (overwrite)", "x")
-            return
+        for i, n in ipairs(names) do
+            local b = mk("TextButton", {
+                LayoutOrder = i, Text = "", AutoButtonColor = true, BorderSizePixel = 0,
+                BackgroundColor3 = (n == sel) and C.selBg or C.panel, Size = UDim2.new(1, -6, 0, 32),
+            }, list)
+            round(b, 6)
+            if n == sel then stroke(b, C.acc) end
+            mk("TextLabel", {
+                Text = n, Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = C.text, BackgroundTransparency = 1,
+                TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd,
+                Position = UDim2.new(0, 10, 0, 0), Size = UDim2.new(1, -96, 1, 0),
+            }, b)
+            local tag = ""
+            if n == Cfg.Startup then tag = "startup" elseif n == Cfg.Slot then tag = "active" end
+            mk("TextLabel", {
+                Text = tag, Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = C.acc, BackgroundTransparency = 1,
+                TextXAlignment = Enum.TextXAlignment.Right, Position = UDim2.new(1, -86, 0, 0), Size = UDim2.new(0, 78, 1, 0),
+            }, b)
+            b.MouseButton1Click:Connect(function()
+                sel = n
+                box.Text = n
+                refresh()
+            end)
         end
-        local ok, saved = Cfg.save(name)
-        if ok then
-            Cfg.Slot = saved
-            Cfg.saveMeta()
-            local shown = refreshList()
-            note("created: " .. saved .. (shown and "" or " (new name appears in the list after re-execute)"))
-        else
-            note("save failed (no writefile?)", "x")
-        end
-    end)
-
-    -- листание списка (работает, даже если дропдаун не обновляется на лету)
-    local function step(dir)
-        local list = Cfg.list()
-        local idx = table.find(list, Cfg.Slot) or 1
-        idx = ((idx - 1 + dir) % #list) + 1
-        Cfg.Slot = list[idx]
-        Cfg.saveMeta()
-        note("selected: " .. Cfg.Slot .. " (" .. idx .. "/" .. #list .. ")", "check")
+        if btnAuto then btnAuto.Text = "Autoload: " .. ((sel and Cfg.Startup == sel) and "on" or "off") end
+        if btnAsave then btnAsave.Text = "Autosave: " .. (Cfg.Autosave and "on" or "off") end
     end
-    addButton(acts, "Prev config", function() step(-1) end)
-    addButton(acts, "Next config", function() step(1) end)
 
-    addButton(acts, "Load", function()
-        if Cfg.load(Cfg.Slot) then
-            if t1.applyTheme then t1.applyTheme() end
-            note("loaded: " .. Cfg.Slot .. " (values apply now, menu switches refresh after re-execute)")
-        else
-            note("no config: " .. Cfg.Slot, "x")
-        end
-    end)
+    local function build()
+        gui = Instance.new("ScreenGui")
+        gui.Name = "LT_ConfigManager"
+        gui.ResetOnSpawn = false
+        gui.IgnoreGuiInset = true
+        gui.DisplayOrder = 1000
+        gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-    local delArmed = 0
-    addButton(acts, "Delete", function()
-        if os.clock() - delArmed > 4 then
-            delArmed = os.clock()
-            note("press Delete again within 4s to remove: " .. Cfg.Slot, "x")
-            return
+        local function tryParent(p)
+            if not p then return false end
+            local ok = pcall(function() gui.Parent = p end)
+            return ok and gui.Parent == p
         end
-        delArmed = 0
-        local name = Cfg.Slot
-        if Cfg.delete(name) then
-            if name ~= "default" then Cfg.Slot = "default" end
+        local placed = false
+        pcall(function() if gethui then placed = tryParent(gethui()) end end)
+        if not placed then placed = tryParent(game:GetService("CoreGui")) end
+        if not placed then placed = tryParent(Players.LocalPlayer:WaitForChild("PlayerGui")) end
+
+        win = mk("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0, 360, 0.9, 0),
+            BackgroundColor3 = C.bg, BorderSizePixel = 0, Active = true,
+        }, gui)
+        mk("UISizeConstraint", { MinSize = Vector2.new(280, 320), MaxSize = Vector2.new(360, 480) }, win)
+        round(win, 10)
+        stroke(win)
+
+        -- шапка + перетаскивание
+        mk("TextLabel", {
+            Text = "CONFIGS", Font = Enum.Font.GothamBold, TextSize = 15, TextColor3 = C.text, BackgroundTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.new(0, 14, 0, 0), Size = UDim2.new(1, -60, 0, 38),
+        }, win)
+        local drag = mk("Frame", { BackgroundTransparency = 1, Active = true, Size = UDim2.new(1, -50, 0, 38) }, win)
+        local close = mk("TextButton", {
+            Text = "x", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C.text, BackgroundColor3 = C.panel,
+            BorderSizePixel = 0, Position = UDim2.new(1, -40, 0, 5), Size = UDim2.new(0, 30, 0, 28),
+        }, win)
+        round(close, 6)
+        close.MouseButton1Click:Connect(function() gui.Enabled = false end)
+
+        local dragging, dStart, wStart = false, nil, nil
+        drag.InputBegan:Connect(function(i)
+            if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                dragging, dStart, wStart = true, i.Position, win.Position
+                i.Changed:Connect(function()
+                    if i.UserInputState == Enum.UserInputState.End then dragging = false end
+                end)
+            end
+        end)
+        UIS.InputChanged:Connect(function(i)
+            if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+                local d = i.Position - dStart
+                win.Position = UDim2.new(wStart.X.Scale, wStart.X.Offset + d.X, wStart.Y.Scale, wStart.Y.Offset + d.Y)
+            end
+        end)
+
+        -- имя конфига
+        box = mk("TextBox", {
+            Text = "", PlaceholderText = "config name", PlaceholderColor3 = C.dim, ClearTextOnFocus = false,
+            Font = Enum.Font.Gotham, TextSize = 14, TextColor3 = C.text, BackgroundColor3 = C.panel, BorderSizePixel = 0,
+            TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.new(0, 12, 0, 44), Size = UDim2.new(1, -24, 0, 34),
+        }, win)
+        round(box, 6)
+        stroke(box)
+        mk("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, box)
+
+        local r1 = row(win, 84, 34)
+        btnSave = button("Save", r1)
+        btnLoad = button("Load", r1)
+        btnDel = button("Delete", r1)
+
+        statusLbl = mk("TextLabel", {
+            Text = "pick a config or type a new name", Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.dim,
+            BackgroundTransparency = 1, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+            TextYAlignment = Enum.TextYAlignment.Top, Position = UDim2.new(0, 14, 0, 124), Size = UDim2.new(1, -28, 0, 30),
+        }, win)
+
+        list = mk("ScrollingFrame", {
+            BackgroundColor3 = C.bg, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = C.line,
+            CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ElasticBehavior = Enum.ElasticBehavior.Never,
+            Position = UDim2.new(0, 12, 0, 158), Size = UDim2.new(1, -24, 1, -158 - 52),
+        }, win)
+        mk("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+
+        local r2 = row(win, 0, 32)
+        r2.Position = UDim2.new(0, 12, 1, -42)
+        btnAuto = button("Autoload: off", r2)
+        btnAsave = button("Autosave: off", r2)
+        btnReset = button("Reset values", r2)
+        btnAuto.TextSize, btnAsave.TextSize, btnReset.TextSize = 11, 11, 11
+
+        -- Save: новое имя создаёт, существующее перезаписывает после второго нажатия
+        btnSave.MouseButton1Click:Connect(function()
+            local name = target()
+            if not name or name == "" then say("type a name (or tap a config) first", true) return end
+            if Cfg.exists(name) and not confirm("save", name, btnSave, "Save", "Overwrite?") then
+                say("«" .. name .. "» already exists. tap Save again to overwrite it", true)
+                return
+            end
+            local ok, saved, count = Cfg.save(name)
+            if ok then
+                sel = saved
+                box.Text = saved
+                say("saved «" .. saved .. "» (" .. tostring(count) .. " settings)")
+                refresh()
+            else
+                say("save failed: " .. tostring(saved) .. " (executor without writefile?)", true)
+            end
+        end)
+
+        btnLoad.MouseButton1Click:Connect(function()
+            local name = target()
+            if not name or name == "" then say("pick or type a config first", true) return end
+            if not Cfg.exists(name) then say("no config named «" .. name .. "»", true) return end
+            say("loading «" .. name .. "»...")
+            task.spawn(function()
+                local ok, n = Cfg.load(name)
+                if ok then
+                    sel = name
+                    box.Text = name
+                    if t1.applyTheme then pcall(t1.applyTheme) end
+                    say("loaded «" .. name .. "»: " .. tostring(n) .. " settings changed")
+                    refresh()
+                else
+                    say("«" .. name .. "» is unreadable", true)
+                end
+            end)
+        end)
+
+        btnDel.MouseButton1Click:Connect(function()
+            local name = target()
+            if not name or name == "" or not Cfg.exists(name) then say("pick a saved config first", true) return end
+            if not confirm("del", name, btnDel, "Delete", "Sure?") then
+                say("tap Delete again to remove «" .. name .. "»", true)
+                return
+            end
+            if Cfg.delete(name) then
+                if sel == name then sel = nil end
+                box.Text = ""
+                say("deleted «" .. name .. "»")
+                refresh()
+            else
+                say("could not delete «" .. name .. "»", true)
+            end
+        end)
+
+        btnAuto.MouseButton1Click:Connect(function()
+            local name = sel or target()
+            if not name or not Cfg.exists(name) then say("pick a saved config first", true) return end
+            Cfg.Startup = (Cfg.Startup ~= name) and name or nil
             Cfg.saveMeta()
-            Cfg._last = game:GetService("HttpService"):JSONEncode(Cfg.snapshot())
-            refreshList()
-            note("deleted: " .. name)
+            say(Cfg.Startup and ("«" .. name .. "» loads on every start") or "autoload off")
+            refresh()
+        end)
+
+        btnAsave.MouseButton1Click:Connect(function()
+            if not Cfg.Autosave and not (Cfg.Slot and Cfg.exists(Cfg.Slot)) then
+                say("save or load a config first. autosave rewrites the active one", true)
+                return
+            end
+            Cfg.Autosave = not Cfg.Autosave
+            Cfg.saveMeta()
+            say(Cfg.Autosave and ("autosave on: «" .. tostring(Cfg.Slot) .. "» rewrites every 2s when something changes") or "autosave off")
+            refresh()
+        end)
+
+        btnReset.MouseButton1Click:Connect(function()
+            if not confirm("reset", "all", btnReset, "Reset values", "Sure?") then
+                say("tap again to reset every value to default (nothing is saved)", true)
+                return
+            end
+            task.spawn(function()
+                Cfg.resetValues()
+                if t1.applyTheme then pcall(t1.applyTheme) end
+                say("values reset. press Save to keep them")
+            end)
+        end)
+    end
+
+    function t1.toggleCfgManager()
+        local first = gui == nil
+        if first then
+            local ok, err = pcall(build)
+            if not ok then
+                gui = nil
+                note("manager failed: " .. tostring(err), "x")
+                return
+            end
+            sel = Cfg.Slot
+            if sel then box.Text = sel end
         else
-            note("nothing to delete: " .. name, "x")
+            gui.Enabled = not gui.Enabled
         end
+        if gui.Enabled then refresh() end
+    end
+
+    UIS.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.KeyCode == kManagerKey then t1.toggleCfgManager() end
     end)
 
-    addButton(acts, "Reset values to defaults", function()
-        Cfg.resetValues()
-        if t1.applyTheme then t1.applyTheme() end
-        note("values reset (not saved until you press Save)")
-    end)
+    -- ---------------- CONFIG (SETTINGS tab) ----------------
+    local left = vSettings:AddSection({ Position = "left", Name = "CONFIG" })
+    addButton(left, "Open config manager (K)", function() t1.toggleCfgManager() end)
 
     -- ---------------- THEME ----------------
     local right = vSettings:AddSection({ Position = "right", Name = "THEME" })
@@ -5517,12 +6155,14 @@ do
 end
 
 -- ============================================================
--- [SCROLL] секции, чей контент не влезает, оборачиваются в ScrollingFrame
--- не трогает либу: рантайм-проход по её GUI, ничего не переписывает
+-- [SCROLL] v2. карточки-секции имеют фикс-высоту и режут лишние строки.
+-- находим карточку (фикс-Frame с вертикальным UIListLayout, контент выше рамки), внутри неё создаём
+-- ScrollingFrame на всю площадь и переносим туда строки + layout. сама карточка (рамка, фон, углы,
+-- размер) не меняется. нестандартная вёрстка пропускается, уведомление покажет сколько секций подхвачено.
 -- ============================================================
 do
     local Players = game:GetService("Players")
-    local kScanSec = 3
+    local kScanSec = 2
     local kBar = 3
     local names = {}
     for _, n in ipairs({
@@ -5531,6 +6171,8 @@ do
         "NO RELOAD", "GOD MODE", "SKIN CHANGER", "KILL EFFECT", "CHINA HAT",
         "JUMP / LAND SHAPE", "CONFIG", "ACTIONS", "THEME",
     }) do names[n] = true end
+    local KEEP = { UICorner = true, UIStroke = true, UIGradient = true, UISizeConstraint = true,
+        UIAspectRatioConstraint = true, UIScale = true }
 
     local function findGui()
         local roots = {}
@@ -5550,70 +6192,91 @@ do
         end
     end
 
-    -- кандидат: обычный Frame с вертикальным UIListLayout, фикс-высота, контент больше рамки
-    local function overflowing(c)
-        if not c:IsA("Frame") or c:GetAttribute("LT_Scroll") then return false end
-        if c.AutomaticSize ~= Enum.AutomaticSize.None then return false end
-        local lay = c:FindFirstChildOfClass("UIListLayout")
-        if not lay or lay.FillDirection ~= Enum.FillDirection.Vertical then return false end
-        for _, ch in ipairs(c:GetChildren()) do
-            if ch:IsA("GuiObject") and ch.Size.Y.Scale > 0 then return false end -- scale-высота схлопнется
-        end
-        return lay.AbsoluteContentSize.Y > c.AbsoluteSize.Y + 4
+    local function depth(o, gui)
+        local n = 0
+        while o and o ~= gui do n += 1; o = o.Parent end
+        return n
     end
 
-    local function wrap(c)
-        local parent = c.Parent
-        if not parent or parent:IsA("ScrollingFrame") then return end
-        c:SetAttribute("LT_Scroll", true)
+    -- карточка: Frame фикс-размера, вертикальный список, строки не помещаются по высоте
+    local function isCard(f)
+        if not f:IsA("Frame") or f:GetAttribute("LT_Scroll") then return false end
+        if f.AutomaticSize ~= Enum.AutomaticSize.None then return false end
+        local lay = f:FindFirstChildOfClass("UIListLayout")
+        if not lay or lay.FillDirection ~= Enum.FillDirection.Vertical then return false end
+        if f.AbsoluteSize.Y < 40 then return false end
+        for _, ch in ipairs(f:GetChildren()) do
+            if ch:IsA("GuiObject") and ch.Size.Y.Scale > 0 then return false end -- scale-высота схлопнется в канвасе
+        end
+        local pad = f:FindFirstChildOfClass("UIPadding")
+        local padY = pad and (pad.PaddingTop.Offset + pad.PaddingBottom.Offset) or 0
+        return lay.AbsoluteContentSize.Y > (f.AbsoluteSize.Y - padY) + 4
+    end
 
+    local function wrap(f)
+        f:SetAttribute("LT_Scroll", true)
         local sc = Instance.new("ScrollingFrame")
         sc.Name = "LT_Scroll"
         sc.BackgroundTransparency = 1
         sc.BorderSizePixel = 0
-        sc.AnchorPoint = c.AnchorPoint
-        sc.Position = c.Position
-        sc.Size = c.Size
-        sc.LayoutOrder = c.LayoutOrder
-        sc.ZIndex = c.ZIndex
-        sc.Visible = c.Visible
+        sc.Position = UDim2.new()
+        sc.Size = UDim2.new(1, 0, 1, 0)
+        sc.ZIndex = f.ZIndex
         sc.ClipsDescendants = true
         sc.ScrollingDirection = Enum.ScrollingDirection.Y
         sc.ScrollBarThickness = kBar
         sc.ScrollBarImageColor3 = Color3.fromRGB(110, 110, 110)
-        sc.ScrollBarImageTransparency = 0.4
+        sc.ScrollBarImageTransparency = 0.35
         sc.ElasticBehavior = Enum.ElasticBehavior.Never
         sc.CanvasSize = UDim2.new()
         sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
-        sc.Parent = parent
-
-        local sx = c.Size.X
-        c.AnchorPoint = Vector2.zero
-        c.Position = UDim2.new()
-        c.LayoutOrder = 0
-        c.Size = UDim2.new(sx.Scale, sx.Offset - (kBar + 2), 0, 0)
-        c.AutomaticSize = Enum.AutomaticSize.Y
-        c.Parent = sc
-
-        c:GetPropertyChangedSignal("Visible"):Connect(function() sc.Visible = c.Visible end)
+        sc.Parent = f
+        for _, ch in ipairs(f:GetChildren()) do
+            if ch ~= sc and not KEEP[ch.ClassName] then ch.Parent = sc end
+        end
+        -- строки, которые либа добавит позже, тоже уходят в скролл
+        f.ChildAdded:Connect(function(ch)
+            if ch ~= sc and not KEEP[ch.ClassName] then ch.Parent = sc end
+        end)
     end
 
+    local total = 0
     local function pass(gui)
+        local titles = {}
         for _, d in ipairs(gui:GetDescendants()) do
-            if d:IsA("TextLabel") and names[string.upper(d.Text)] then
-                local a = d.Parent
-                for _ = 1, 5 do
-                    if not a or a == gui then break end
-                    local hit
-                    if overflowing(a) then
-                        hit = a
-                    else
-                        for _, ch in ipairs(a:GetChildren()) do
-                            if overflowing(ch) then hit = ch break end
-                        end
+            if d:IsA("TextLabel") and names[string.upper(d.Text)] then titles[#titles + 1] = d end
+        end
+        local function titlesIn(o)
+            local c = 0
+            for _, t in ipairs(titles) do
+                if t:IsDescendantOf(o) then c += 1 end
+            end
+            return c
+        end
+        for _, L in ipairs(titles) do
+            -- корень секции: до 3 уровней вверх, пока внутри нет чужих заголовков
+            local root, a = nil, L.Parent
+            for _ = 1, 3 do
+                if not a or a == gui then break end
+                local foreign = false
+                for _, o in ipairs(titles) do
+                    if o ~= L and o:IsDescendantOf(a) then foreign = true break end
+                end
+                if foreign then break end
+                root = a
+                a = a.Parent
+            end
+            if root then
+                local best, bestD
+                for _, d in ipairs(root:GetDescendants()) do
+                    if isCard(d) and titlesIn(d) < 2 then
+                        local dd = depth(d, gui)
+                        if not best or dd < bestD then best, bestD = d, dd end
                     end
-                    if hit then wrap(hit) break end
-                    a = a.Parent
+                end
+                if best then
+                    wrap(best)
+                    total += 1
                 end
             end
         end
@@ -5626,9 +6289,39 @@ do
             if not gui then task.wait(1) end
         end
         task.wait(1)
+        local passes = 0
         while gui.Parent do
             pcall(pass, gui)
+            passes += 1
+            if passes == 4 then
+                pcall(function()
+                    v11:Notify({
+                        Title = "SCROLL",
+                        Content = total > 0 and ("scroll on " .. total .. " sections") or "no overflowing sections found (layout differs from expected)",
+                        Icon = total > 0 and "check" or "x",
+                    })
+                end)
+            end
             task.wait(kScanSec)
         end
     end)
 end
+
+-- ============================================================
+-- [CONFIG] финал: когда меню построено, применяем startup-конфиг вживую (flags через реестр)
+-- ============================================================
+task.spawn(function()
+    task.wait(1.5)
+    local Reg, Cfg = t1.Reg, t1.Cfg
+    pcall(Cfg.finish)
+    local setter = Reg.probe()
+    local msg
+    if Reg.hooked == 0 then
+        msg = "widget hook failed: configs only restore legacy keys"
+    elseif setter then
+        msg = #Reg.order .. " settings tracked, live apply via :" .. setter .. "()"
+    else
+        msg = #Reg.order .. " settings tracked, no setter found: effects apply, widgets refresh after re-execute"
+    end
+    pcall(function() v11:Notify({ Title = "CONFIG", Content = msg, Icon = setter and "check" or "x" }) end)
+end)
