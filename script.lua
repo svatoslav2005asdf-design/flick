@@ -5515,99 +5515,120 @@ do
         end)
     end)
 end
+
 -- ============================================================
--- [SECTION SCROLL] Вертикальная прокрутка панелей настроек
--- Не меняет callbacks, flags и значения существующих элементов.
+-- [SCROLL] секции, чей контент не влезает, оборачиваются в ScrollingFrame
+-- не трогает либу: рантайм-проход по её GUI, ничего не переписывает
 -- ============================================================
 do
-    local sectionNames = {
-        ["SILENT AIM"] = true, ["VIEW"] = true, ["PLAYER"] = true,
-        ["WORLD"] = true, ["MOVEMENT"] = true, ["MISC"] = true,
-        ["RAGE BOT"] = true, ["ATTACK INTERVAL"] = true,
-        ["SURFACE PENETRATION"] = true, ["ESP"] = true,
-        ["ESP INFO"] = true, ["SPIN"] = true, ["NO RELOAD"] = true,
-        ["GOD MODE"] = true, ["SKIN CHANGER"] = true,
-        ["KILL EFFECT"] = true, ["CHINA HAT"] = true,
-        ["JUMP / LAND SHAPE"] = true, ["CONFIG"] = true,
-        ["ACTIONS"] = true, ["THEME"] = true,
-    }
+    local Players = game:GetService("Players")
+    local kScanSec = 3
+    local kBar = 3
+    local names = {}
+    for _, n in ipairs({
+        "SILENT AIM", "VIEW", "PLAYER", "WORLD", "MOVEMENT", "MISC", "RAGE BOT",
+        "ATTACK INTERVAL", "SURFACE PENETRATION", "ESP", "ESP INFO", "SPIN",
+        "NO RELOAD", "GOD MODE", "SKIN CHANGER", "KILL EFFECT", "CHINA HAT",
+        "JUMP / LAND SHAPE", "CONFIG", "ACTIONS", "THEME",
+    }) do names[n] = true end
 
-    local done = setmetatable({}, {__mode = "k"})
-    local function setupSection(title)
-        if not title:IsA("TextLabel") or not sectionNames[title.Text] then return end
-        local panel = title.Parent
-        if not panel or not panel:IsA("Frame") or done[panel] then return end
-        -- Обрабатываем только секции, где заголовок и элементы лежат рядом.
-        local widgets = {}
-        local layouts = {}
-        for _, child in ipairs(panel:GetChildren()) do
-            if child ~= title then
-                if child:IsA("GuiObject") then
-                    widgets[#widgets + 1] = child
-                elseif child:IsA("UIListLayout") or child:IsA("UIGridLayout") or child:IsA("UIPadding") then
-                    layouts[#layouts + 1] = child
+    local function findGui()
+        local roots = {}
+        pcall(function() if gethui then roots[#roots + 1] = gethui() end end)
+        roots[#roots + 1] = game:GetService("CoreGui")
+        local pg = Players.LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then roots[#roots + 1] = pg end
+        for _, r in ipairs(roots) do
+            local ok, gui = pcall(function()
+                for _, d in ipairs(r:GetDescendants()) do
+                    if d:IsA("TextLabel") and d.Text == "Lesxov Tap" then
+                        return d:FindFirstAncestorWhichIsA("ScreenGui")
+                    end
+                end
+            end)
+            if ok and gui then return gui end
+        end
+    end
+
+    -- кандидат: обычный Frame с вертикальным UIListLayout, фикс-высота, контент больше рамки
+    local function overflowing(c)
+        if not c:IsA("Frame") or c:GetAttribute("LT_Scroll") then return false end
+        if c.AutomaticSize ~= Enum.AutomaticSize.None then return false end
+        local lay = c:FindFirstChildOfClass("UIListLayout")
+        if not lay or lay.FillDirection ~= Enum.FillDirection.Vertical then return false end
+        for _, ch in ipairs(c:GetChildren()) do
+            if ch:IsA("GuiObject") and ch.Size.Y.Scale > 0 then return false end -- scale-высота схлопнется
+        end
+        return lay.AbsoluteContentSize.Y > c.AbsoluteSize.Y + 4
+    end
+
+    local function wrap(c)
+        local parent = c.Parent
+        if not parent or parent:IsA("ScrollingFrame") then return end
+        c:SetAttribute("LT_Scroll", true)
+
+        local sc = Instance.new("ScrollingFrame")
+        sc.Name = "LT_Scroll"
+        sc.BackgroundTransparency = 1
+        sc.BorderSizePixel = 0
+        sc.AnchorPoint = c.AnchorPoint
+        sc.Position = c.Position
+        sc.Size = c.Size
+        sc.LayoutOrder = c.LayoutOrder
+        sc.ZIndex = c.ZIndex
+        sc.Visible = c.Visible
+        sc.ClipsDescendants = true
+        sc.ScrollingDirection = Enum.ScrollingDirection.Y
+        sc.ScrollBarThickness = kBar
+        sc.ScrollBarImageColor3 = Color3.fromRGB(110, 110, 110)
+        sc.ScrollBarImageTransparency = 0.4
+        sc.ElasticBehavior = Enum.ElasticBehavior.Never
+        sc.CanvasSize = UDim2.new()
+        sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        sc.Parent = parent
+
+        local sx = c.Size.X
+        c.AnchorPoint = Vector2.zero
+        c.Position = UDim2.new()
+        c.LayoutOrder = 0
+        c.Size = UDim2.new(sx.Scale, sx.Offset - (kBar + 2), 0, 0)
+        c.AutomaticSize = Enum.AutomaticSize.Y
+        c.Parent = sc
+
+        c:GetPropertyChangedSignal("Visible"):Connect(function() sc.Visible = c.Visible end)
+    end
+
+    local function pass(gui)
+        for _, d in ipairs(gui:GetDescendants()) do
+            if d:IsA("TextLabel") and names[string.upper(d.Text)] then
+                local a = d.Parent
+                for _ = 1, 5 do
+                    if not a or a == gui then break end
+                    local hit
+                    if overflowing(a) then
+                        hit = a
+                    else
+                        for _, ch in ipairs(a:GetChildren()) do
+                            if overflowing(ch) then hit = ch break end
+                        end
+                    end
+                    if hit then wrap(hit) break end
+                    a = a.Parent
                 end
             end
         end
-        if #widgets < 2 then return end
-        -- Если контейнер уже прокручивается, ничего не меняем.
-        for _, widget in ipairs(widgets) do
-            if widget:IsA("ScrollingFrame") then
-                widget.ScrollingDirection = Enum.ScrollingDirection.Y
-                widget.AutomaticCanvasSize = Enum.AutomaticSize.Y
-                return
-            end
-        end
-        -- Не переносим элементы, если секция использует общий layout:
-        -- в таком случае он может управлять и заголовком.
-        if #layouts > 0 then return end
-
-        done[panel] = true
-        local top = math.max(0, title.Position.Y.Offset + title.Size.Y.Offset + 6)
-        local scroll = Instance.new("ScrollingFrame")
-        scroll.Name = "LesxovSectionScroll"
-        scroll.BackgroundTransparency = 1
-        scroll.BorderSizePixel = 0
-        scroll.Position = UDim2.new(0, 0, 0, top)
-        scroll.Size = UDim2.new(1, 0, 1, -top)
-        scroll.ScrollingDirection = Enum.ScrollingDirection.Y
-        scroll.ScrollBarThickness = 3
-        scroll.ScrollBarImageColor3 = Color3.fromRGB(160, 160, 160)
-        scroll.ScrollingEnabled = true
-        scroll.Active = true
-        scroll.ClipsDescendants = true
-        scroll.ZIndex = panel.ZIndex + 1
-        scroll.Parent = panel
-
-        local function updateCanvas()
-            local bottom = 0
-            for _, item in ipairs(widgets) do
-                if item.Parent == scroll then
-                    bottom = math.max(bottom, item.Position.Y.Offset + item.AbsoluteSize.Y + 10)
-                end
-            end
-            scroll.CanvasSize = UDim2.fromOffset(0, math.max(0, bottom))
-        end
-        for _, item in ipairs(widgets) do
-            local p = item.Position
-            item.Parent = scroll
-            item.Position = UDim2.new(p.X.Scale, p.X.Offset, p.Y.Scale, p.Y.Offset - top)
-            item:GetPropertyChangedSignal("Size"):Connect(updateCanvas)
-            item:GetPropertyChangedSignal("Visible"):Connect(updateCanvas)
-        end
-        task.defer(updateCanvas)
-        scroll.ChildAdded:Connect(function() task.defer(updateCanvas) end)
     end
 
     task.spawn(function()
-        for _ = 1, 30 do
-            local root = t1.findFrame()
-            if root then
-                for _, d in ipairs(root:GetDescendants()) do
-                    pcall(setupSection, d)
-                end
-            end
-            task.wait(1)
+        local gui
+        while not gui do
+            gui = findGui()
+            if not gui then task.wait(1) end
+        end
+        task.wait(1)
+        while gui.Parent do
+            pcall(pass, gui)
+            task.wait(kScanSec)
         end
     end)
 end
