@@ -495,6 +495,8 @@ do
             "RageMagEnabled", "WallbangEnabled", "WallbangAutoFire", "WallbangFOV",
             "SkinEnabled", "SkinName", "SnowStyle",
             "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll", "UndoDuration",
+            "SpinSwitchRate", "CharacterTrailsEnabled", "CharacterTrailStyle", "CharacterTrailColorHex",
+            "CharacterTrailLifetime", "CharacterTrailWidth", "CharacterTrailTransparency", "CharacterTrailRainbow",
             "BulletTrailsEnabled", "BulletTrailModel", "BulletTrailLife",
             "Theme", "ThemeHue", "ThemeSat",
             "EspEnabled", "EspBoxType", "EspFill", "EspFillAlpha", "EspOutline", "EspThickness", "EspHealth",
@@ -778,6 +780,7 @@ getgenv().BhopCFrameMultiplier = 0.35
 getgenv().SpinEnabled = false
 getgenv().SpinMode = "Basic Spin"
 getgenv().SpinSpeed = 25
+getgenv().SpinSwitchRate = 8
 getgenv().SpinJitterAngle = 65
 getgenv().SpinDesyncRoll = 0
 getgenv().UndoDuration = 2
@@ -3340,7 +3343,7 @@ end
 -- ============================================================
 do
     local sec = t1.mMove:AddSection({ Position = "center", Name = "SPIN" })
-    local modes = { "Basic Spin", "Jitler", "Yitler", "Sway", "Static Jitter", "Undo", "Back", "Undo Back" }
+    local modes = { "Basic Spin", "Reverse Spin", "Fast Spin", "Random Spin", "Fake Spin", "Jitler", "Yitler", "Sway", "Static Jitter", "Random Jitter", "180 Jitter", "3-Way Jitter", "Sideways Left", "Sideways Right", "Backwards", "Forward", "Moonwalk", "Oscillate", "Adaptive Spin", "Step Spin", "Zero Spin", "Undo", "Back", "Undo Back" }
     if not table.find(modes, getgenv().SpinMode) then getgenv().SpinMode = "Basic Spin" end
 
     local function restore()
@@ -3391,6 +3394,11 @@ do
         Min = 0, Max = 180,
         Default = math.clamp(getgenv().SpinJitterAngle, 0, 180),
         Callback = function(val) getgenv().SpinJitterAngle = val end
+    })
+    sec:AddSlider({
+        Name = "Switch Rate", Flag = "SpinSwitchRate", Min = 1, Max = 30,
+        Default = math.clamp(getgenv().SpinSwitchRate or 8, 1, 30),
+        Callback = function(v) getgenv().SpinSwitchRate = v end
     })
     sec:AddSlider({
         Name = "Body Lean (Roll)",
@@ -3488,15 +3496,40 @@ RunService5.RenderStepped:Connect(function(dt)
     jitterFlip = not jitterFlip
 
     local finalYaw = math.rad(currentSpinYaw)
-    -- Jitler / Yitler: чистый спин, jitter остаётся только в позе — без размазанного yaw
-    if mode == "Sway" or mode == "Static Jitter" then
-        -- relative to where the camera looks
-        local _, camYaw = workspace.CurrentCamera.CFrame:ToOrientation()
-        if mode == "Sway" then
-            finalYaw = camYaw + math.sin(tick() * speed / 8) * math.rad(jitterDeg)
-        else
-            finalYaw = camYaw + (jitterFlip and math.rad(jitterDeg) or -math.rad(jitterDeg))
-        end
+    local _, camYaw = workspace.CurrentCamera.CFrame:ToOrientation()
+    local t = os.clock()
+    local rate = math.max(1, getgenv().SpinSwitchRate or 8)
+    local phase = math.floor(t * rate)
+    local jitter = math.rad(jitterDeg)
+    if mode == "Reverse Spin" then
+        finalYaw = math.rad(-currentSpinYaw)
+    elseif mode == "Fast Spin" then
+        finalYaw = math.rad(currentSpinYaw * 3)
+    elseif mode == "Random Spin" then
+        finalYaw = math.rad((phase * 137.508) % 360)
+    elseif mode == "Fake Spin" then
+        finalYaw = camYaw + math.sin(t * speed * 0.15) * jitter
+    elseif mode == "Sway" or mode == "Oscillate" then
+        finalYaw = camYaw + math.sin(t * speed / (mode == "Sway" and 8 or 3)) * jitter
+    elseif mode == "Static Jitter" or mode == "180 Jitter" then
+        local angle = mode == "180 Jitter" and math.pi or jitter
+        finalYaw = camYaw + (phase % 2 == 0 and angle or -angle)
+    elseif mode == "Random Jitter" then
+        finalYaw = camYaw + math.rad((math.noise(phase * 0.731, 0) * 2) * jitterDeg)
+    elseif mode == "3-Way Jitter" then
+        finalYaw = camYaw + ({-jitter, 0, jitter})[phase % 3 + 1]
+    elseif mode == "Sideways Left" then
+        finalYaw = camYaw - math.pi / 2
+    elseif mode == "Sideways Right" then
+        finalYaw = camYaw + math.pi / 2
+    elseif mode == "Backwards" or mode == "Moonwalk" then
+        finalYaw = camYaw + math.pi
+    elseif mode == "Forward" or mode == "Zero Spin" then
+        finalYaw = camYaw
+    elseif mode == "Adaptive Spin" then
+        finalYaw = camYaw + math.rad(currentSpinYaw) * (hum.MoveDirection.Magnitude > 0.1 and 1 or 0.15)
+    elseif mode == "Step Spin" then
+        finalYaw = math.rad((phase * math.max(15, jitterDeg)) % 360)
     end
 
     local pos = hrp.Position
@@ -4521,6 +4554,103 @@ v18:AddDropdown({
     end
 })
 
+
+-- ============================================================
+-- [CHARACTER TRAILS] cosmetic trails attached to the local character
+-- ============================================================
+do
+    local g = getgenv()
+    local defaults = { CharacterTrailsEnabled = false, CharacterTrailStyle = "Neon Ribbon",
+        CharacterTrailColorHex = "C832FF", CharacterTrailLifetime = 0.6,
+        CharacterTrailWidth = 1.5, CharacterTrailTransparency = 25, CharacterTrailRainbow = false }
+    for k,v in pairs(defaults) do if g[k] == nil then g[k] = v end end
+    local styles = { "Neon Ribbon", "Ghost", "Twin Blades", "Rainbow", "Thin Line", "Wide Ribbon", "Fire", "Ice", "Shadow", "Pulse" }
+    local active = {}
+    local function colorFromHex(h)
+        h = tostring(h or "C832FF"):gsub("#", "")
+        if #h ~= 6 then return Color3.fromRGB(200,50,255) end
+        local n = tonumber(h,16)
+        return n and Color3.fromRGB(math.floor(n/65536)%256,math.floor(n/256)%256,n%256) or Color3.fromRGB(200,50,255)
+    end
+    local function clear()
+        for _, item in ipairs(active) do pcall(function() item:Destroy() end) end
+        table.clear(active)
+    end
+    local function makeTrail(part, offset, width, style)
+        local a = Instance.new("Attachment")
+        a.Name = "LesxovTrailTop"
+        a.Position = offset + Vector3.new(0,width/2,0)
+        a.Parent = part
+        local b = Instance.new("Attachment")
+        b.Name = "LesxovTrailBottom"
+        b.Position = offset - Vector3.new(0,width/2,0)
+        b.Parent = part
+        local trail = Instance.new("Trail")
+        trail.Name = "LesxovCharacterTrail"
+        trail.Attachment0, trail.Attachment1 = a,b
+        trail.FaceCamera = style ~= "Twin Blades"
+        trail.LightEmission = style == "Shadow" and 0 or 1
+        trail.MinLength = 0.05
+        trail.Parent = part
+        table.insert(active,a);table.insert(active,b);table.insert(active,trail)
+        return trail
+    end
+    local function rebuild()
+        clear()
+        if not g.CharacterTrailsEnabled then return end
+        local char = game.Players.LocalPlayer.Character
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        local style = g.CharacterTrailStyle
+        local width = g.CharacterTrailWidth or 1.5
+        if style == "Thin Line" then width = width * 0.2 end
+        if style == "Wide Ribbon" then width = width * 2 end
+        if style == "Twin Blades" then
+            makeTrail(root,Vector3.new(-0.8,0,0),width * 0.65,style)
+            makeTrail(root,Vector3.new(0.8,0,0),width * 0.65,style)
+        else
+            makeTrail(root,Vector3.zero,width,style)
+        end
+    end
+    local sec = t1.mVisuals:AddSection({ Position = "right", Name = "CHARACTER TRAILS" })
+    sec:AddToggle({Name="Character Trails",Flag="CharacterTrailsEnabled",Default=g.CharacterTrailsEnabled,
+        Callback=function(v) g.CharacterTrailsEnabled=v;rebuild() end})
+    sec:AddDropdown({Name="Trail Style",Flag="CharacterTrailStyle",Values=styles,Default=g.CharacterTrailStyle,
+        Callback=function(v) g.CharacterTrailStyle=v;rebuild() end})
+    sec:AddColorPicker({Name="Trail Color",Flag="CharacterTrailColorPicker",Default=colorFromHex(g.CharacterTrailColorHex),
+        Callback=function(v) g.CharacterTrailColorHex=string.format("%02X%02X%02X",math.floor(v.R*255+0.5),math.floor(v.G*255+0.5),math.floor(v.B*255+0.5)) end})
+    sec:AddSlider({Name="Lifetime (x0.1s)",Flag="CharacterTrailLifetimeSlider",Min=1,Max=30,Default=math.floor(g.CharacterTrailLifetime*10+0.5),
+        Callback=function(v) g.CharacterTrailLifetime=v/10 end})
+    sec:AddSlider({Name="Width (x0.1)",Flag="CharacterTrailWidthSlider",Min=1,Max=60,Default=math.floor(g.CharacterTrailWidth*10+0.5),
+        Callback=function(v) g.CharacterTrailWidth=v/10;rebuild() end})
+    sec:AddSlider({Name="Transparency %",Flag="CharacterTrailTransparency",Min=0,Max=95,Default=g.CharacterTrailTransparency,
+        Callback=function(v) g.CharacterTrailTransparency=v end})
+    sec:AddToggle({Name="Rainbow Color",Flag="CharacterTrailRainbow",Default=g.CharacterTrailRainbow,
+        Callback=function(v) g.CharacterTrailRainbow=v end})
+    game.Players.LocalPlayer.CharacterAdded:Connect(function() task.wait(0.6);rebuild() end)
+    game:GetService("RunService").Heartbeat:Connect(function()
+        if not g.CharacterTrailsEnabled then return end
+        local style = g.CharacterTrailStyle
+        local color = colorFromHex(g.CharacterTrailColorHex)
+        if g.CharacterTrailRainbow or style == "Rainbow" then color = Color3.fromHSV((os.clock()*0.25)%1,1,1) end
+        if style == "Fire" then color = Color3.fromHSV(0.04 + math.sin(os.clock()*5)*0.025,1,1) end
+        if style == "Ice" then color = Color3.fromRGB(100,215,255) end
+        if style == "Shadow" then color = Color3.fromRGB(70,35,110) end
+        local alpha = math.clamp((g.CharacterTrailTransparency or 25)/100,0,0.95)
+        if style == "Ghost" then alpha = math.max(alpha,0.6) end
+        if style == "Pulse" then alpha = math.clamp(alpha + 0.3*math.sin(os.clock()*6),0,0.95) end
+        for _, obj in ipairs(active) do
+            if obj:IsA("Trail") then
+                obj.Color = ColorSequence.new(color)
+                obj.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0,alpha),NumberSequenceKeypoint.new(1,1)})
+                obj.Lifetime = g.CharacterTrailLifetime or 0.6
+                obj.Enabled = true
+            end
+        end
+    end)
+    task.defer(rebuild)
+end
 
 -- ============================================================
 -- [EXTRA VISUALS] fullbright + кастомный прицел + fps счётчик
