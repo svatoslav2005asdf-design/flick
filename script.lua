@@ -5515,3 +5515,99 @@ do
         end)
     end)
 end
+-- ============================================================
+-- [SECTION SCROLL] Вертикальная прокрутка панелей настроек
+-- Не меняет callbacks, flags и значения существующих элементов.
+-- ============================================================
+do
+    local sectionNames = {
+        ["SILENT AIM"] = true, ["VIEW"] = true, ["PLAYER"] = true,
+        ["WORLD"] = true, ["MOVEMENT"] = true, ["MISC"] = true,
+        ["RAGE BOT"] = true, ["ATTACK INTERVAL"] = true,
+        ["SURFACE PENETRATION"] = true, ["ESP"] = true,
+        ["ESP INFO"] = true, ["SPIN"] = true, ["NO RELOAD"] = true,
+        ["GOD MODE"] = true, ["SKIN CHANGER"] = true,
+        ["KILL EFFECT"] = true, ["CHINA HAT"] = true,
+        ["JUMP / LAND SHAPE"] = true, ["CONFIG"] = true,
+        ["ACTIONS"] = true, ["THEME"] = true,
+    }
+
+    local done = setmetatable({}, {__mode = "k"})
+    local function setupSection(title)
+        if not title:IsA("TextLabel") or not sectionNames[title.Text] then return end
+        local panel = title.Parent
+        if not panel or not panel:IsA("Frame") or done[panel] then return end
+        -- Обрабатываем только секции, где заголовок и элементы лежат рядом.
+        local widgets = {}
+        local layouts = {}
+        for _, child in ipairs(panel:GetChildren()) do
+            if child ~= title then
+                if child:IsA("GuiObject") then
+                    widgets[#widgets + 1] = child
+                elseif child:IsA("UIListLayout") or child:IsA("UIGridLayout") or child:IsA("UIPadding") then
+                    layouts[#layouts + 1] = child
+                end
+            end
+        end
+        if #widgets < 2 then return end
+        -- Если контейнер уже прокручивается, ничего не меняем.
+        for _, widget in ipairs(widgets) do
+            if widget:IsA("ScrollingFrame") then
+                widget.ScrollingDirection = Enum.ScrollingDirection.Y
+                widget.AutomaticCanvasSize = Enum.AutomaticSize.Y
+                return
+            end
+        end
+        -- Не переносим элементы, если секция использует общий layout:
+        -- в таком случае он может управлять и заголовком.
+        if #layouts > 0 then return end
+
+        done[panel] = true
+        local top = math.max(0, title.Position.Y.Offset + title.Size.Y.Offset + 6)
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Name = "LesxovSectionScroll"
+        scroll.BackgroundTransparency = 1
+        scroll.BorderSizePixel = 0
+        scroll.Position = UDim2.new(0, 0, 0, top)
+        scroll.Size = UDim2.new(1, 0, 1, -top)
+        scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+        scroll.ScrollBarThickness = 3
+        scroll.ScrollBarImageColor3 = Color3.fromRGB(160, 160, 160)
+        scroll.ScrollingEnabled = true
+        scroll.Active = true
+        scroll.ClipsDescendants = true
+        scroll.ZIndex = panel.ZIndex + 1
+        scroll.Parent = panel
+
+        local function updateCanvas()
+            local bottom = 0
+            for _, item in ipairs(widgets) do
+                if item.Parent == scroll then
+                    bottom = math.max(bottom, item.Position.Y.Offset + item.AbsoluteSize.Y + 10)
+                end
+            end
+            scroll.CanvasSize = UDim2.fromOffset(0, math.max(0, bottom))
+        end
+        for _, item in ipairs(widgets) do
+            local p = item.Position
+            item.Parent = scroll
+            item.Position = UDim2.new(p.X.Scale, p.X.Offset, p.Y.Scale, p.Y.Offset - top)
+            item:GetPropertyChangedSignal("Size"):Connect(updateCanvas)
+            item:GetPropertyChangedSignal("Visible"):Connect(updateCanvas)
+        end
+        task.defer(updateCanvas)
+        scroll.ChildAdded:Connect(function() task.defer(updateCanvas) end)
+    end
+
+    task.spawn(function()
+        for _ = 1, 30 do
+            local root = t1.findFrame()
+            if root then
+                for _, d in ipairs(root:GetDescendants()) do
+                    pcall(setupSection, d)
+                end
+            end
+            task.wait(1)
+        end
+    end)
+end
