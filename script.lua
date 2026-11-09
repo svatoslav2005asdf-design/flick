@@ -79,53 +79,175 @@ local QualityLevel = settings().Rendering.QualityLevel
 if QualityLevel == Enum.QualityLevel.Level01 or (QualityLevel == Enum.QualityLevel.Level02 or QualityLevel == Enum.QualityLevel.Level03) then
     settings().Rendering.QualityLevel = Enum.QualityLevel.Level04
 end
-local v9 = loadstring(game:HttpGet("https://raw.githubusercontent.com/CludeHub/FATALITY/refs/heads/main/FATALITYSOURCE.lua"))()
-local v11 = v9:CreateNotifier()
--- интро без звука
-v9:Loader({
-	Name = "Lesxov Tap",
-	Duration = 4
-})
-local v12 = "Hello, " .. game.Players.LocalPlayer.DisplayName .. "! Welcome back."
-v11:Notify({
-	Title = "Lesxov Tap",
-	Content = "made by lesxov",
-	Icon = "clipboard"
-})
-v11:Notify({
-    Title = "LESXOV TAP LOADED",
-    Content = v12,
-    Icon = "check"
-})
-
-local v13 = v9.new({
-	Name = "Lesxov Tap",
-	Expire = "never"
-})
+-- ============================================================
+-- [WINDUI] библиотека интерфейса: WindUI (Footagesus).
+-- ниже тонкий адаптер: отдаёт коду старый API (v13:AddMenu -> :AddSection -> :AddToggle/AddSlider/...,
+-- у пункта с Option = true под-настройки уходят в сворачиваемую подсекцию), а рисует всё через WindUI.
+-- все фичи ниже по файлу работают без изменений.
+-- ============================================================
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
+t1.WindUI = WindUI
 local UserInputService = game:GetService("UserInputService")
 
--- non-blocking: lib may parent its gui to gethui()/CoreGui/PlayerGui under a different name
-function t1.findFrame()
-    local roots = {}
-    pcall(function() if gethui then roots[#roots + 1] = gethui() end end)
-    roots[#roots + 1] = game:GetService("CoreGui")
-    local pg = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
-    if pg then roots[#roots + 1] = pg end
-    for _, root in ipairs(roots) do
-        local ok, f = pcall(function() return root:FindFirstChild("FatalFtame", true) or root:FindFirstChild("FatalFrame", true) end)
-        if ok and f then return f end
-    end
+local Window = WindUI:CreateWindow({
+	Title = "Lesxov Tap",
+	Icon = "crosshair",
+	Folder = "LesxovTapUI",
+	Theme = "Dark",
+	NewElements = true,
+	OpenButton = { Title = "Lesxov Tap", Enabled = true, Draggable = true, OnlyMobile = false },
+})
+t1.Window = Window
+pcall(function() Window:SetToggleKey(Enum.KeyCode.H) end) -- H скрывает/показывает окно, на телефоне есть круглая кнопка
+
+-- уведомления
+local v11 = {}
+function v11:Notify(o)
+	o = o or {}
+	local title, content = tostring(o.Title or ""), tostring(o.Content or "")
+	local ok = pcall(function()
+		WindUI:Notify({ Title = title, Content = content, Icon = o.Icon, Duration = o.Duration or 4 })
+	end)
+	if not ok then
+		pcall(function() WindUI:Notify({ Title = title, Content = content, Duration = o.Duration or 4 }) end)
+	end
 end
 
-local UserInputService = game:GetService("UserInputService")
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.H then
-        t1.value4 = t1.value4 or t1.findFrame()
-        if t1.value4 then t1.value4.Visible = not t1.value4.Visible end
-    end
-end)
-v13:AddConfig():Init("Counter-Strike 2", "Lesxov-Win")
+local function wuTry(container, method, params)
+	local ok, res = pcall(function() return container[method](container, params) end)
+	if ok then return res end
+	return nil
+end
+
+local makeSection
+makeSection = function(container, fallback, title)
+	local sec = { _c = container, _fb = fallback }
+
+	local function create(method, params)
+		local el = wuTry(sec._c, method, params)
+		if el == nil and sec._fb then el = wuTry(sec._fb, method, params) end
+		return el
+	end
+
+	-- Option = true: под-настройки в сворачиваемой подсекции сразу под пунктом
+	local function withOption(el, o)
+		if o.Option then
+			local sub = wuTry(sec._c, "Section", {
+				Title = tostring(o.Name or title or "") .. " settings", Box = true, BoxBorder = true, Opened = false,
+			})
+			if sub then
+				el.Option = makeSection(sub, sec._c, title)
+			else
+				el.Option = makeSection(sec._c, sec._fb, title)
+			end
+		end
+		return el
+	end
+
+	function sec:AddToggle(o)
+		o = o or {}
+		local el = { Value = o.Default == true }
+		local native = create("Toggle", {
+			Title = tostring(o.Name or "Toggle"), Desc = o.Desc, Value = el.Value,
+			Callback = function(v)
+				el.Value = v and true or false
+				if o.Callback then o.Callback(el.Value) end
+			end,
+		})
+		function el:Set(v)
+			v = v and true or false
+			if not (native and pcall(function() native:Set(v) end)) then el.Value = v end
+		end
+		return withOption(el, o)
+	end
+
+	function sec:AddSlider(o)
+		o = o or {}
+		local mn, mx = o.Min or 0, o.Max or 100
+		local el = { Value = math.clamp(o.Default or mn, mn, mx) }
+		local native = create("Slider", {
+			Title = tostring(o.Name or "Slider"), Step = o.Step or 1,
+			Value = { Min = mn, Max = mx, Default = el.Value },
+			Callback = function(v)
+				el.Value = v
+				if o.Callback then o.Callback(v) end
+			end,
+		})
+		function el:Set(v)
+			if not (native and pcall(function() native:Set(v) end)) then el.Value = v end
+		end
+		return withOption(el, o)
+	end
+
+	function sec:AddDropdown(o)
+		o = o or {}
+		local vals = o.Values or {}
+		local def = o.Default
+		if o.Multi ~= true and (def == nil or not table.find(vals, def)) then def = vals[1] end
+		local el = { Value = def }
+		local native = create("Dropdown", {
+			Title = tostring(o.Name or "Dropdown"), Values = vals, Value = def, Multi = o.Multi,
+			Callback = function(v)
+				el.Value = v
+				if o.Callback then o.Callback(v) end
+			end,
+		})
+		function el:Set(v)
+			local ok = native and (pcall(function() native:Select(v) end) or pcall(function() native:Set(v) end))
+			if not ok then el.Value = v end
+		end
+		function el:Refresh(list)
+			if native then pcall(function() native:Refresh(list) end) end
+		end
+		return withOption(el, o)
+	end
+
+	function sec:AddColorPicker(o)
+		o = o or {}
+		local def = o.Default or Color3.new(1, 1, 1)
+		local el = { Value = def }
+		local native = create("Colorpicker", {
+			Title = tostring(o.Name or "Color"), Default = def, Transparency = 0,
+			Callback = function(c)
+				el.Value = c
+				if o.Callback then o.Callback(c) end
+			end,
+		})
+		function el:Set(c)
+			if not (native and pcall(function() native:Set(c) end)) then el.Value = c end
+		end
+		return el
+	end
+
+	function sec:AddButton(o)
+		o = o or {}
+		create("Button", { Title = tostring(o.Name or o.Title or o.Text or "Button"), Callback = o.Callback })
+		return {}
+	end
+
+	return sec
+end
+
+local v13 = {}
+function v13:AddConfig() return { Init = function() end } end
+function v13:AddMenu(o)
+	o = o or {}
+	local icon = o.Icon
+	if icon == "cog" then icon = "settings" end
+	local tab = wuTry(Window, "Tab", { Title = tostring(o.Name or "Menu"), Icon = icon })
+	if not tab then tab = wuTry(Window, "Tab", { Title = tostring(o.Name or "Menu") }) end
+	if not tab then error("WindUI: Window:Tab failed for " .. tostring(o.Name)) end
+	local menu = {}
+	function menu:AddSection(so)
+		so = so or {}
+		local c = wuTry(tab, "Section", { Title = tostring(so.Name or "Section"), Box = true, BoxBorder = true, Opened = true })
+		return makeSection(c or tab, tab, so.Name)
+	end
+	return menu
+end
+
+v11:Notify({ Title = "Lesxov Tap", Content = "made by lesxov", Icon = "clipboard" })
+v11:Notify({ Title = "LESXOV TAP LOADED", Content = "Hello, " .. game.Players.LocalPlayer.DisplayName .. "! Welcome back.", Icon = "check" })
 
 local function mkMenu(name, icon)
 	local ok, m = pcall(function()
@@ -370,13 +492,11 @@ do
             "RageBotEnabled", "RageBotHitbox", "RageBotAutoFire",
             "AttackIntervalEnabled", "AttackInterval", "AttackHold", "AttackJitter",
             "PenetrationEnabled", "PenetrationMax",
-            "RageMagEnabled", "WallbangEnabled", "WallbangAutoFire", "WallbangFOV", "NoReloadEnabled",
-            "GodModeEnabled",
+            "RageMagEnabled", "WallbangEnabled", "WallbangAutoFire", "WallbangFOV",
             "SkinEnabled", "SkinName", "SnowStyle",
             "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll", "UndoDuration",
             "BulletTrailsEnabled", "BulletTrailModel", "BulletTrailLife",
             "Theme", "ThemeHue", "ThemeSat",
-            "GunSoundEnabled", "GunSoundType", "GunSoundVolume",
             "EspEnabled", "EspBoxType", "EspFill", "EspFillAlpha", "EspOutline", "EspThickness", "EspHealth",
             "EspHealthGradient", "EspName", "EspDist", "EspTracers", "EspTracerFrom", "EspSkeleton", "EspTeamCheck",
             "KillFxEnabled", "KillFxName", "KillFxColorHex", "HatEnabled", "HatDetail", "HatSize", "HatHeight",
@@ -673,8 +793,6 @@ getgenv().RageMagEnabled = false
 getgenv().WallbangEnabled = false
 getgenv().WallbangAutoFire = false
 getgenv().WallbangFOV = 30
-getgenv().NoReloadEnabled = false
-getgenv().GodModeEnabled = false
 getgenv().SkinEnabled = false
 getgenv().SkinName = "Random"
 getgenv().SnowStyle = "Realistic"
@@ -702,9 +820,6 @@ do
     }
     for k, v in pairs(d) do if e[k] == nil then e[k] = v end end
 end
-if getgenv().GunSoundEnabled == nil then getgenv().GunSoundEnabled = false end
-getgenv().GunSoundType = getgenv().GunSoundType or "Default"
-getgenv().GunSoundVolume = getgenv().GunSoundVolume or 50
 getgenv().ThemeHue = getgenv().ThemeHue or 330
 getgenv().ThemeSat = getgenv().ThemeSat or 70
 t1.Cfg.init()
@@ -1318,166 +1433,6 @@ t1.value19.CharacterAdded:Connect(v33)
 
 t1.value32 = nil
 t1.value33 = {}
--- ============================================================
--- [CUSTOM GUN SOUND]
--- раньше менялся SoundId у всех GunShot в игре: звук перезагружался в момент
--- выстрела (отсюда задержка и промахи рейдж бота), а при выключении все
--- звуки возвращались разом (оглушительный шум). теперь SoundId НЕ трогаем:
--- оригинал глушится через SoundGroup (громкость 0), а наш звук играется
--- отдельным Sound в момент выстрела. выключение просто возвращает SoundGroup.
--- ID взяты из открытых списков и не проверены: мёртвый ID = тишина, тогда
--- включение откатывается и оригинал остаётся (см. уведомление).
--- ============================================================
-do
-    local SoundService = game:GetService("SoundService")
-    local ContentProvider = game:GetService("ContentProvider")
-    local Debris = game:GetService("Debris")
-
-    local GUN_SOUNDS = {
-        ["Default"] = "rbxassetid://2476571739",
-        ["Sniper"] = "rbxassetid://138854039966754",
-        ["Gunshot"] = "rbxassetid://127646504338729",
-        ["Shotgun"] = "rbxassetid://9077115754",
-        ["Boom Headshot"] = "rbxassetid://7361085557",
-        ["Realistic Rifle"] = "rbxassetid://92011177452282",
-        ["Rifle 2021"] = "rbxassetid://6862108495",
-        ["Colt Commando"] = "rbxassetid://6523957098",
-        ["Gunshot SFX"] = "rbxassetid://6656835390",
-        ["Gun Shot"] = "rbxassetid://1905367471",
-        ["AWP"] = "rbxassetid://1868836",
-    }
-    local GUN_ORDER = { "Default", "Sniper", "Gunshot", "Shotgun", "Boom Headshot", "Realistic Rifle",
-        "Rifle 2021", "Colt Commando", "Gunshot SFX", "Gun Shot", "AWP" }
-
-    local muteGroup = Instance.new("SoundGroup")
-    muteGroup.Name = "\0g"
-    muteGroup.Volume = 0
-    muteGroup.Parent = SoundService
-
-    local tracked = {} -- [sound] = { group, conns }
-    local active = false
-    local addConn
-
-    local function soundId(sound)
-        local choice = getgenv().GunSoundType or "Default"
-        if choice == "Default" then
-            local model = sound:FindFirstAncestorWhichIsA("Model")
-            if model and model.Name == "Revolver" then return "rbxassetid://18302097184" end
-        end
-        return GUN_SOUNDS[choice] or GUN_SOUNDS.Default
-    end
-
-    local function playCustom(sound)
-        if not active then return end
-        local s = Instance.new("Sound")
-        s.SoundId = soundId(sound)
-        s.Volume = (getgenv().GunSoundVolume or 50) / 100 * 2
-        s.RollOffMaxDistance = 600
-        local par = sound.Parent
-        if par and (par:IsA("BasePart") or par:IsA("Attachment")) then
-            s.Parent = par
-        else
-            s.Parent = SoundService
-        end
-        s:Play()
-        Debris:AddItem(s, 5)
-    end
-
-    local function attach(sound)
-        if tracked[sound] or not sound:IsA("Sound") or sound.Name ~= "GunShot" then return end
-        local rec = { group = sound.SoundGroup, conns = {} }
-        tracked[sound] = rec
-        sound.SoundGroup = muteGroup
-        rec.conns[#rec.conns + 1] = sound.Played:Connect(function() playCustom(sound) end)
-        if sound.PlayOnRemove then
-            rec.conns[#rec.conns + 1] = sound.Destroying:Connect(function() playCustom(sound) end)
-        end
-        if sound.IsPlaying then playCustom(sound) end
-    end
-
-    local function detachAll()
-        for sound, rec in pairs(tracked) do
-            for _, c in ipairs(rec.conns) do c:Disconnect() end
-            if sound.Parent then pcall(function() sound.SoundGroup = rec.group end) end
-        end
-        table.clear(tracked)
-        if addConn then addConn:Disconnect() addConn = nil end
-    end
-
-    local function enable()
-        active = true
-        for _, d in ipairs(workspace:GetDescendants()) do
-            if d:IsA("Sound") then attach(d) end
-        end
-        local bp = t1.value8:FindFirstChildOfClass("Backpack")
-        if bp then
-            for _, d in ipairs(bp:GetDescendants()) do
-                if d:IsA("Sound") then attach(d) end
-            end
-        end
-        addConn = workspace.DescendantAdded:Connect(function(d)
-            if d:IsA("Sound") then attach(d) end
-        end)
-    end
-
-    local function disable()
-        active = false
-        detachAll()
-    end
-
-    -- проверка, что ID вообще грузится; иначе не глушим оригинал
-    local function verify(cb)
-        task.spawn(function()
-            local id = GUN_SOUNDS[getgenv().GunSoundType or "Default"] or GUN_SOUNDS.Default
-            local t = Instance.new("Sound")
-            t.SoundId = id
-            pcall(function() ContentProvider:PreloadAsync({ t }) end)
-            local ok = t.TimeLength > 0
-            t:Destroy()
-            cb(ok)
-        end)
-    end
-
-    local function apply()
-        disable()
-        if not getgenv().GunSoundEnabled then return end
-        verify(function(ok)
-            if not getgenv().GunSoundEnabled then return end
-            if ok then
-                enable()
-            else
-                v11:Notify({ Title = "GUN SOUND", Content = "sound failed to load, original kept (pick another)", Icon = "x" })
-            end
-        end)
-    end
-
-    v21:AddToggle({
-        Name = "Custom gun sound",
-        Flag = "CustomGunSound",
-        Default = getgenv().GunSoundEnabled,
-        Callback = function(p)
-            getgenv().GunSoundEnabled = p
-            apply()
-        end
-    })
-    v21:AddDropdown({
-        Name = "Gun sound",
-        Flag = "GunSoundType",
-        Values = GUN_ORDER,
-        Default = getgenv().GunSoundType,
-        Callback = function(p)
-            getgenv().GunSoundType = p
-            if getgenv().GunSoundEnabled then apply() end
-        end
-    })
-    v21:AddSlider({
-        Name = "Gun volume",
-        Flag = "GunSoundVolume",
-        Min = 0, Max = 100,
-        Default = math.clamp(getgenv().GunSoundVolume, 0, 100),
-        Callback = function(p) getgenv().GunSoundVolume = p end
-    })
-end
 t1.value34 = game:GetService("Players").LocalPlayer
 t1.value35 = {
 	Crit = "rbxassetid://138705939667182",
@@ -4287,13 +4242,30 @@ local function trailPart(size, cf, color, life, base, ball)
     return part
 end
 
-local function trailSeg(a, b, w, color, life, base)
+-- видимость: минимальная толщина в пикселях экрана. раньше линии были 0.04-0.12 stud, на дистанции
+-- это меньше пикселя и модели пропадали (видно было только Thunder с широким ореолом)
+local kMinPx = 2.4      -- ядро линии, px
+local kGlowPx = 5.5     -- ореол, px
+local kBallPx = 4.5     -- точки / шарики, px
+local kNearCam = 6      -- пуля родилась ближе этого к камере = выстрел от первого лица
+local kConverge = 30    -- через сколько stud след сходится с реальной траекторией
+local kMuzzle = Vector3.new(1.1, -0.9, -1.8) -- откуда рисуется начало вблизи (в координатах камеры)
+
+local function pxToWorld(pos, px)
+    local cam = workspace.CurrentCamera
+    local dist = (pos - cam.CFrame.Position).Magnitude
+    return dist * px * 2 * math.tan(math.rad(cam.FieldOfView) / 2) / math.max(cam.ViewportSize.Y, 1)
+end
+
+local function trailSeg(a, b, w, color, life, base, px)
     local len = (a - b).Magnitude
     if len < 0.01 then return end
+    w = math.max(w, pxToWorld((a + b) / 2, px or kMinPx))
     return trailPart(Vector3.new(w, w, len), CFrame.new(a, b) * CFrame.new(0, 0, -len / 2), color, life, base)
 end
 
 local function trailBall(pos, size, color, life, base)
+    size = math.max(size, pxToWorld(pos, kBallPx))
     return trailPart(Vector3.new(size, size, size), CFrame.new(pos), color, life, base, true)
 end
 
@@ -4305,6 +4277,7 @@ local function CreateBulletTrail(startPos, endPos, color)
     local cf = CFrame.new(startPos, endPos)
     local dir, right, up = cf.LookVector, cf.RightVector, cf.UpVector
     local rnd = math.random
+    local white = Color3.new(1, 1, 1)
     trailFrame += 1
 
     if model == "Thunder" then
@@ -4315,65 +4288,67 @@ local function CreateBulletTrail(startPos, endPos, color)
             if i < n then
                 p = p + right * (rnd() - 0.5) * 1.4 + up * (rnd() - 0.5) * 1.4
             end
-            trailSeg(prev, p, 0.28, color, 0.35, 0.6)
-            trailSeg(prev, p, 0.08, Color3.new(1, 1, 1), 0.35)
+            trailSeg(prev, p, 0.28, color, 0.35, 0.6, kGlowPx)
+            trailSeg(prev, p, 0.08, white, 0.35)
             prev = p
         end
     elseif model == "Arrow" then
-        trailSeg(startPos, endPos, 0.05, color, 0.9)
+        trailSeg(startPos, endPos, 0.1, color, 0.9)
         if len > 0.3 then
-            local back = -dir * 0.8
+            local back = -dir * 0.9
             for _, side in ipairs({ right, -right, up, -up }) do
-                trailSeg(endPos, endPos + back + side * 0.35, 0.06, color, 0.9)
+                trailSeg(endPos, endPos + back + side * 0.4, 0.08, color, 0.9)
             end
         end
     elseif model == "Thick Beam" then
-        trailSeg(startPos, endPos, 0.35, color, 1.0, 0.45)
-        trailSeg(startPos, endPos, 0.12, Color3.new(1, 1, 1), 1.0)
+        trailSeg(startPos, endPos, 0.35, color, 1.0, 0.45, kGlowPx)
+        trailSeg(startPos, endPos, 0.12, white, 1.0)
     elseif model == "Dotted" then
-        trailBall(endPos, 0.32, color, 1.4)
+        trailBall(endPos, 0.4, color, 1.4)
     elseif model == "Helix" then
         local a = os.clock() * 25
         local off = right * math.cos(a) * 0.7 + up * math.sin(a) * 0.7
-        trailBall(endPos + off, 0.2, color, 1.2)
+        trailBall(endPos + off, 0.28, color, 1.2)
+        trailSeg(startPos, endPos, 0.05, color, 0.8, 0.5)
     elseif model == "DNA" then
         local a = os.clock() * 22
         local off = right * math.cos(a) * 0.7 + up * math.sin(a) * 0.7
         local inv = Color3.new(1 - color.R, 1 - color.G, 1 - color.B)
-        trailBall(endPos + off, 0.22, color, 1.2)
-        trailBall(endPos - off, 0.22, inv, 1.2)
+        trailBall(endPos + off, 0.28, color, 1.2)
+        trailBall(endPos - off, 0.28, inv, 1.2)
         if trailFrame % 2 == 0 then
-            trailSeg(endPos + off, endPos - off, 0.04, Color3.new(1, 1, 1), 1.0, 0.3)
+            trailSeg(endPos + off, endPos - off, 0.05, white, 1.0, 0.3)
         end
     elseif model == "Sparks" then
         for _ = 1, 4 do
             local v = Vector3.new(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5) * 1.2
-            trailBall(endPos + v, 0.12, rnd() > 0.5 and color or Color3.new(1, 1, 1), 0.5)
+            trailBall(endPos + v, 0.16, rnd() > 0.5 and color or white, 0.5)
         end
-        trailSeg(startPos, endPos, 0.04, color, 0.5)
+        trailSeg(startPos, endPos, 0.06, color, 0.5)
     elseif model == "Rainbow" then
-        trailSeg(startPos, endPos, 0.12, Color3.fromHSV((os.clock() * 0.8) % 1, 1, 1), 1.5)
+        trailSeg(startPos, endPos, 0.2, Color3.fromHSV((os.clock() * 0.8) % 1, 1, 1), 1.5)
     elseif model == "Fire" then
         local j = Vector3.new(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5) * 0.3
-        trailSeg(startPos + j, endPos + j, 0.2, Color3.fromRGB(255, 90, 0), 0.7, 0.35)
-        trailSeg(startPos, endPos, 0.07, Color3.fromRGB(255, 220, 80), 0.7)
-        trailBall(endPos + Vector3.new(0, rnd() * 0.6, 0) + j, 0.14, Color3.fromRGB(255, 150, 20), 0.6)
+        trailSeg(startPos + j, endPos + j, 0.25, Color3.fromRGB(255, 90, 0), 0.7, 0.35, kGlowPx)
+        trailSeg(startPos, endPos, 0.09, Color3.fromRGB(255, 220, 80), 0.7)
+        trailBall(endPos + Vector3.new(0, rnd() * 0.6, 0) + j, 0.18, Color3.fromRGB(255, 150, 20), 0.6)
     elseif model == "Rings" then
         if trailFrame % 2 == 0 then
-            trailPart(Vector3.new(0.05, 1.3, 1.3), CFrame.new(endPos, endPos + dir) * CFrame.Angles(0, math.rad(90), 0),
-                color, 0.8, 0.3).Shape = Enum.PartType.Cylinder
+            local ring = trailPart(Vector3.new(0.12, 1.4, 1.4), CFrame.new(endPos, endPos + dir) * CFrame.Angles(0, math.rad(90), 0),
+                color, 0.8, 0.3)
+            ring.Shape = Enum.PartType.Cylinder
         end
-        trailSeg(startPos, endPos, 0.04, color, 0.8)
+        trailSeg(startPos, endPos, 0.06, color, 0.8)
     elseif model == "Glitch" then
         for _ = 1, 3 do
             local v = Vector3.new(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5) * 1.0
-            local sz = 0.1 + rnd() * 0.3
+            local sz = math.max(0.15 + rnd() * 0.3, pxToWorld(endPos + v, kBallPx))
             trailPart(Vector3.new(sz, sz, sz * (1 + rnd() * 3)), CFrame.new(endPos + v, endPos + v + dir),
                 rnd() > 0.5 and color or Color3.fromHSV(rnd(), 1, 1), 0.4)
         end
-        trailSeg(startPos, endPos, 0.05, color, 0.4)
+        trailSeg(startPos, endPos, 0.06, color, 0.4)
     else
-        trailSeg(startPos, endPos, 0.06, color, 1.5)
+        trailSeg(startPos, endPos, 0.12, color, 1.5)
     end
 end
 
@@ -4406,14 +4381,24 @@ task.spawn(function()
         if not getgenv().BulletTrailsEnabled then return end
         if not child:IsA("BasePart") then return end
 
-        local startPos = child.Position
+        local origin = child.Position
+        local cam = workspace.CurrentCamera
+        -- выстрел от первого лица: пуля рождается у самой камеры и линия видна строго с торца (точкой).
+        -- смещаем начало следа к "дулу" и плавно сводим на реальную траекторию за kConverge stud
+        local off = Vector3.zero
+        if cam and (origin - cam.CFrame.Position).Magnitude < kNearCam then
+            off = cam.CFrame:PointToWorldSpace(kMuzzle) - origin
+        end
+        local lastVis = origin + off
         local connection
 
         connection = RunService.RenderStepped:Connect(function()
             if child and child.Parent then
-                local endPos = child.Position
-                CreateBulletTrail(startPos, endPos, getgenv().BulletTrailColor)
-                startPos = endPos
+                local cur = child.Position
+                local k = math.max(0, 1 - (cur - origin).Magnitude / kConverge)
+                local vis = cur + off * k
+                CreateBulletTrail(lastVis, vis, getgenv().BulletTrailColor)
+                lastVis = vis
             else
                 connection:Disconnect()
             end
@@ -4459,112 +4444,6 @@ v18:AddDropdown({
     end
 })
 
-
--- ============================================================
--- [NO RELOAD] держит патроны на максимуме (best effort)
--- ищет Int/NumberValue и атрибуты с ammo/mag/clip/bullet/round в оружии,
--- на персонаже, в Backpack и на игроке. если счётчик патронов лежит в
--- памяти модуля, а не в инстансах — в консоли будет [NoReload] 0 tracked
--- ============================================================
-do
-    local pats = { "ammo", "magazine", "clip", "bullets", "rounds" }
-    local exact = { mag = true, mags = true, bullet = true, round = true }
-    local skip = { "damage", "speed", "spread", "recoil", "size", "range", "time", "delay",
-        "rate", "drop", "penetr", "velocity", "life", "gravity", "max", "pellet", "multi" }
-    local function isAmmo(n)
-        n = n:lower()
-        for _, w in ipairs(skip) do
-            if n:find(w, 1, true) then return false end
-        end
-        if exact[n] then return true end
-        for _, w in ipairs(pats) do
-            if n:find(w, 1, true) then return true end
-        end
-        return false
-    end
-
-    local maxVal = setmetatable({}, { __mode = "k" })
-    local maxAttr = setmetatable({}, { __mode = "k" })
-    local tracked = 0
-
-    local function keep(inst)
-        if (inst:IsA("IntValue") or inst:IsA("NumberValue")) and isAmmo(inst.Name) then
-            local m = maxVal[inst]
-            if not m then tracked += 1 end
-            if not m or inst.Value > m then m = inst.Value end
-            maxVal[inst] = m
-            if inst.Value < m then inst.Value = m end
-        end
-        local am = maxAttr[inst]
-        for name, v in pairs(inst:GetAttributes()) do
-            if type(v) == "number" and isAmmo(name) then
-                if not am then am = {}; maxAttr[inst] = am end
-                if not am[name] then tracked += 1 end
-                if not am[name] or v > am[name] then am[name] = v end
-                if v < am[name] then inst:SetAttribute(name, am[name]) end
-            end
-        end
-    end
-
-    local function sweep(root)
-        if not root then return end
-        keep(root)
-        for _, d in ipairs(root:GetDescendants()) do keep(d) end
-    end
-
-    local secNR = t1.mMisc:AddSection({ Position = "center", Name = "NO RELOAD" })
-    secNR:AddToggle({
-        Name = "No Reload (infinite ammo)",
-        Flag = "NoReloadEnabled",
-        Default = getgenv().NoReloadEnabled,
-        Callback = function(p)
-            getgenv().NoReloadEnabled = p
-            if p then
-                task.delay(1, function()
-                    print("[NoReload] " .. tracked .. " tracked")
-                end)
-            end
-        end
-    })
-
-    task.spawn(function()
-        while task.wait(0.05) do
-            if getgenv().NoReloadEnabled then
-                local lp = t1.value8
-                pcall(function()
-                    sweep(lp.Character)
-                    sweep(lp:FindFirstChildOfClass("Backpack"))
-                    keep(lp)
-                end)
-            end
-        end
-    end)
-end
-
--- ============================================================
--- [GOD MODE] клиентский: мгновенный отхил при уроне.
--- если урон считает сервер — может убить, это best effort
--- ============================================================
-do
-    local secGod = t1.mMisc:AddSection({ Position = "center", Name = "GOD MODE" })
-    secGod:AddToggle({
-        Name = "God Mode (client)",
-        Flag = "GodModeEnabled",
-        Default = getgenv().GodModeEnabled,
-        Callback = function(p) getgenv().GodModeEnabled = p end
-    })
-    local function trackGod(char)
-        local hum = char:WaitForChild("Humanoid", 10)
-        if not hum then return end
-        hum:GetPropertyChangedSignal("Health"):Connect(function()
-            if getgenv().GodModeEnabled and hum.Health > 0 and hum.Health < hum.MaxHealth then
-                hum.Health = hum.MaxHealth
-            end
-        end)
-    end
-    if t1.value8.Character then task.spawn(trackGod, t1.value8.Character) end
-    t1.value8.CharacterAdded:Connect(trackGod)
-end
 
 -- ============================================================
 -- [EXTRA VISUALS] fullbright + кастомный прицел + fps счётчик
@@ -5944,367 +5823,34 @@ do
     local left = vSettings:AddSection({ Position = "left", Name = "CONFIG" })
     addButton(left, "Open config manager (K)", function() t1.toggleCfgManager() end)
 
-    -- ---------------- THEME ----------------
+    -- ---------------- THEME (WindUI) ----------------
     local right = vSettings:AddSection({ Position = "right", Name = "THEME" })
+    local WindUI = t1.WindUI
+    local themes = {}
+    pcall(function()
+        for name in pairs(WindUI:GetThemes()) do themes[#themes + 1] = name end
+    end)
+    table.sort(themes)
+    if #themes == 0 then themes = { "Dark", "Light" } end
+    local curTheme
+    pcall(function() curTheme = WindUI:GetCurrentTheme() end)
+    if getgenv().Theme and table.find(themes, getgenv().Theme) then curTheme = getgenv().Theme end
+    if not (curTheme and table.find(themes, curTheme)) then curTheme = themes[1] end
+
+    function t1.applyTheme()
+        local th = getgenv().Theme
+        if th and table.find(themes, th) then pcall(function() WindUI:SetTheme(th) end) end
+    end
     right:AddDropdown({
         Name = "Theme",
         Flag = "ThemeName",
-        Values = { "Default", "Blue", "Purple", "Green", "Red", "Orange", "Yellow", "Cyan", "Mono", "Custom" },
-        Default = getgenv().Theme,
+        Values = themes,
+        Default = curTheme,
         Callback = function(p)
             getgenv().Theme = p
-            if t1.applyTheme then t1.applyTheme() end
+            t1.applyTheme()
         end
     })
-    right:AddSlider({
-        Name = "Custom hue",
-        Flag = "ThemeHueSlider",
-        Min = 0, Max = 360,
-        Default = math.clamp(getgenv().ThemeHue, 0, 360),
-        Callback = function(p)
-            getgenv().ThemeHue = p
-            if getgenv().Theme == "Custom" and t1.applyTheme then t1.applyTheme() end
-        end
-    })
-    right:AddSlider({
-        Name = "Custom saturation",
-        Flag = "ThemeSatSlider",
-        Min = 0, Max = 100,
-        Default = math.clamp(getgenv().ThemeSat, 0, 100),
-        Callback = function(p)
-            getgenv().ThemeSat = p
-            if getgenv().Theme == "Custom" and t1.applyTheme then t1.applyTheme() end
-        end
-    })
-end
-
--- ============================================================
--- [THEME ENGINE] перекрашивает акцентный цвет окна либы.
--- акцент определяется автоматически (самый частый насыщенный оттенок в окне),
--- поэтому не зависит от имён внутренних объектов. тёмный фон не трогаем.
--- ============================================================
-do
-    local Players = game:GetService("Players")
-    local PRESETS = { -- h = оттенок 0..1, s = множитель насыщенности
-        Blue = { h = 0.60, s = 1 }, Purple = { h = 0.75, s = 1 }, Green = { h = 0.37, s = 1 },
-        Red = { h = 0.99, s = 1 }, Orange = { h = 0.07, s = 1 }, Yellow = { h = 0.14, s = 1 },
-        Cyan = { h = 0.5, s = 1 }, Mono = { h = 0, s = 0 },
-    }
-
-    local root, accentH, accentS
-    local ver = 0
-    local records = setmetatable({}, { __mode = "k" }) -- [inst][prop] = {orig, last, ver}
-    local sweeping, sweepUntil = false, 0
-
-    local function hueNear(h, h0)
-        local d = math.abs(h - h0)
-        return math.min(d, 1 - d) < 0.05
-    end
-
-    local function isAccent(c)
-        local h, s, v = c:ToHSV()
-        return s > 0.35 and v > 0.35 and accentH ~= nil and hueNear(h, accentH)
-    end
-
-    local function currentTheme()
-        local name = getgenv().Theme
-        if name == "Default" or not name then return nil end
-        if name == "Custom" then
-            local s0 = math.max(accentS or 0.6, 0.1)
-            return { h = (getgenv().ThemeHue or 330) / 360, s = ((getgenv().ThemeSat or 70) / 100) / s0 }
-        end
-        return PRESETS[name]
-    end
-
-    local function remap(c, th)
-        if not th then return c end
-        local _, s, v = c:ToHSV()
-        return Color3.fromHSV(th.h, math.clamp(s * th.s, 0, 1), v)
-    end
-
-    local function findRoot()
-        local roots = {}
-        pcall(function() if gethui then roots[#roots + 1] = gethui() end end)
-        roots[#roots + 1] = game:GetService("CoreGui")
-        local pg = Players.LocalPlayer:FindFirstChild("PlayerGui")
-        if pg then roots[#roots + 1] = pg end
-        for _, r in ipairs(roots) do
-            local ok, gui = pcall(function()
-                for _, d in ipairs(r:GetDescendants()) do
-                    if d:IsA("TextLabel") and d.Text == "Lesxov Tap" then
-                        return d:FindFirstAncestorWhichIsA("ScreenGui")
-                    end
-                end
-            end)
-            if ok and gui then return gui end
-        end
-    end
-
-    local function propsOf(d)
-        if d:IsA("UIStroke") then return { "Color" } end
-        if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then return { "BackgroundColor3", "TextColor3" } end
-        if d:IsA("ImageLabel") or d:IsA("ImageButton") then return { "BackgroundColor3", "ImageColor3" } end
-        if d:IsA("ScrollingFrame") then return { "BackgroundColor3", "ScrollBarImageColor3" } end
-        if d:IsA("GuiObject") then return { "BackgroundColor3" } end
-        return nil
-    end
-
-    local function detect()
-        local bins, sampleS = {}, {}
-        for _, d in ipairs(root:GetDescendants()) do
-            local props = propsOf(d)
-            if props then
-                for _, prop in ipairs(props) do
-                    local c = d[prop]
-                    local h, s, v = c:ToHSV()
-                    if s > 0.45 and v > 0.5 then
-                        local k = math.floor(h * 50)
-                        bins[k] = (bins[k] or 0) + 1
-                        sampleS[k] = (sampleS[k] or 0) + s
-                    end
-                end
-            end
-        end
-        local bestK, bestN = nil, 0
-        for k, n in pairs(bins) do
-            if n > bestN then bestK, bestN = k, n end
-        end
-        if not bestK then return false end
-        accentH = (bestK + 0.5) / 50
-        accentS = sampleS[bestK] / bestN
-        return true
-    end
-
-    local function applyProp(d, prop, th)
-        local rec = records[d] and records[d][prop]
-        if not rec then return end
-        d[prop] = remap(rec.orig, th)
-        rec.last = d[prop]
-        rec.ver = ver
-    end
-
-    local function processInst(d, th)
-        if d:IsA("UIGradient") then
-            local rec = records[d] and records[d].Color
-            if not rec or rec.ver ~= ver then
-                local origSeq = rec and rec.orig or d.Color
-                local pts, any = {}, false
-                for _, kp in ipairs(origSeq.Keypoints) do
-                    if isAccent(kp.Value) then any = true end
-                    pts[#pts + 1] = ColorSequenceKeypoint.new(kp.Time, remap(kp.Value, th))
-                end
-                if any then
-                    records[d] = records[d] or {}
-                    records[d].Color = { orig = origSeq, ver = ver }
-                    d.Color = ColorSequence.new(pts)
-                end
-            end
-            return
-        end
-        local props = propsOf(d)
-        if not props then return end
-        for _, prop in ipairs(props) do
-            local c = d[prop]
-            local byInst = records[d]
-            local rec = byInst and byInst[prop]
-            if rec and c == rec.last then
-                if rec.ver ~= ver then applyProp(d, prop, th) end
-            elseif isAccent(c) then
-                if not byInst then byInst = {}; records[d] = byInst end
-                byInst[prop] = { orig = c, last = c, ver = -1 }
-                applyProp(d, prop, th)
-            elseif rec then
-                byInst[prop] = nil
-            end
-        end
-    end
-
-    function t1.applyTheme()
-        ver += 1
-        sweeping = true
-        -- на Default дочищаем ещё 4 секунды, для остальных тем свип идёт постоянно (ловит твины либы)
-        sweepUntil = currentTheme() and math.huge or (os.clock() + 4)
-    end
-
-    task.spawn(function()
-        while not root do
-            root = findRoot()
-            if not root then task.wait(1) end
-        end
-        task.wait(0.5)
-        if not detect() then return end
-        if currentTheme() then t1.applyTheme() end
-
-        -- нарезка по кадрам: ~300 объектов за кадр, без фризов
-        local list, idx = root:GetDescendants(), 1
-        game:GetService("RunService").RenderStepped:Connect(function()
-            if not sweeping then return end
-            if os.clock() > sweepUntil then sweeping = false return end
-            local th = currentTheme()
-            for _ = 1, 300 do
-                local d = list[idx]
-                if not d then
-                    list, idx = root:GetDescendants(), 1
-                    break
-                end
-                idx += 1
-                if d.Parent then pcall(processInst, d, th) end
-            end
-        end)
-    end)
-end
-
--- ============================================================
--- [SCROLL] v2. карточки-секции имеют фикс-высоту и режут лишние строки.
--- находим карточку (фикс-Frame с вертикальным UIListLayout, контент выше рамки), внутри неё создаём
--- ScrollingFrame на всю площадь и переносим туда строки + layout. сама карточка (рамка, фон, углы,
--- размер) не меняется. нестандартная вёрстка пропускается, уведомление покажет сколько секций подхвачено.
--- ============================================================
-do
-    local Players = game:GetService("Players")
-    local kScanSec = 2
-    local kBar = 3
-    local names = {}
-    for _, n in ipairs({
-        "SILENT AIM", "VIEW", "PLAYER", "WORLD", "MOVEMENT", "MISC", "RAGE BOT",
-        "ATTACK INTERVAL", "SURFACE PENETRATION", "ESP", "ESP INFO", "SPIN",
-        "NO RELOAD", "GOD MODE", "SKIN CHANGER", "KILL EFFECT", "CHINA HAT",
-        "JUMP / LAND SHAPE", "CONFIG", "ACTIONS", "THEME",
-    }) do names[n] = true end
-    local KEEP = { UICorner = true, UIStroke = true, UIGradient = true, UISizeConstraint = true,
-        UIAspectRatioConstraint = true, UIScale = true }
-
-    local function findGui()
-        local roots = {}
-        pcall(function() if gethui then roots[#roots + 1] = gethui() end end)
-        roots[#roots + 1] = game:GetService("CoreGui")
-        local pg = Players.LocalPlayer:FindFirstChild("PlayerGui")
-        if pg then roots[#roots + 1] = pg end
-        for _, r in ipairs(roots) do
-            local ok, gui = pcall(function()
-                for _, d in ipairs(r:GetDescendants()) do
-                    if d:IsA("TextLabel") and d.Text == "Lesxov Tap" then
-                        return d:FindFirstAncestorWhichIsA("ScreenGui")
-                    end
-                end
-            end)
-            if ok and gui then return gui end
-        end
-    end
-
-    local function depth(o, gui)
-        local n = 0
-        while o and o ~= gui do n += 1; o = o.Parent end
-        return n
-    end
-
-    -- карточка: Frame фикс-размера, вертикальный список, строки не помещаются по высоте
-    local function isCard(f)
-        if not f:IsA("Frame") or f:GetAttribute("LT_Scroll") then return false end
-        if f.AutomaticSize ~= Enum.AutomaticSize.None then return false end
-        local lay = f:FindFirstChildOfClass("UIListLayout")
-        if not lay or lay.FillDirection ~= Enum.FillDirection.Vertical then return false end
-        if f.AbsoluteSize.Y < 40 then return false end
-        for _, ch in ipairs(f:GetChildren()) do
-            if ch:IsA("GuiObject") and ch.Size.Y.Scale > 0 then return false end -- scale-высота схлопнется в канвасе
-        end
-        local pad = f:FindFirstChildOfClass("UIPadding")
-        local padY = pad and (pad.PaddingTop.Offset + pad.PaddingBottom.Offset) or 0
-        return lay.AbsoluteContentSize.Y > (f.AbsoluteSize.Y - padY) + 4
-    end
-
-    local function wrap(f)
-        f:SetAttribute("LT_Scroll", true)
-        local sc = Instance.new("ScrollingFrame")
-        sc.Name = "LT_Scroll"
-        sc.BackgroundTransparency = 1
-        sc.BorderSizePixel = 0
-        sc.Position = UDim2.new()
-        sc.Size = UDim2.new(1, 0, 1, 0)
-        sc.ZIndex = f.ZIndex
-        sc.ClipsDescendants = true
-        sc.ScrollingDirection = Enum.ScrollingDirection.Y
-        sc.ScrollBarThickness = kBar
-        sc.ScrollBarImageColor3 = Color3.fromRGB(110, 110, 110)
-        sc.ScrollBarImageTransparency = 0.35
-        sc.ElasticBehavior = Enum.ElasticBehavior.Never
-        sc.CanvasSize = UDim2.new()
-        sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
-        sc.Parent = f
-        for _, ch in ipairs(f:GetChildren()) do
-            if ch ~= sc and not KEEP[ch.ClassName] then ch.Parent = sc end
-        end
-        -- строки, которые либа добавит позже, тоже уходят в скролл
-        f.ChildAdded:Connect(function(ch)
-            if ch ~= sc and not KEEP[ch.ClassName] then ch.Parent = sc end
-        end)
-    end
-
-    local total = 0
-    local function pass(gui)
-        local titles = {}
-        for _, d in ipairs(gui:GetDescendants()) do
-            if d:IsA("TextLabel") and names[string.upper(d.Text)] then titles[#titles + 1] = d end
-        end
-        local function titlesIn(o)
-            local c = 0
-            for _, t in ipairs(titles) do
-                if t:IsDescendantOf(o) then c += 1 end
-            end
-            return c
-        end
-        for _, L in ipairs(titles) do
-            -- корень секции: до 3 уровней вверх, пока внутри нет чужих заголовков
-            local root, a = nil, L.Parent
-            for _ = 1, 3 do
-                if not a or a == gui then break end
-                local foreign = false
-                for _, o in ipairs(titles) do
-                    if o ~= L and o:IsDescendantOf(a) then foreign = true break end
-                end
-                if foreign then break end
-                root = a
-                a = a.Parent
-            end
-            if root then
-                local best, bestD
-                for _, d in ipairs(root:GetDescendants()) do
-                    if isCard(d) and titlesIn(d) < 2 then
-                        local dd = depth(d, gui)
-                        if not best or dd < bestD then best, bestD = d, dd end
-                    end
-                end
-                if best then
-                    wrap(best)
-                    total += 1
-                end
-            end
-        end
-    end
-
-    task.spawn(function()
-        local gui
-        while not gui do
-            gui = findGui()
-            if not gui then task.wait(1) end
-        end
-        task.wait(1)
-        local passes = 0
-        while gui.Parent do
-            pcall(pass, gui)
-            passes += 1
-            if passes == 4 then
-                pcall(function()
-                    v11:Notify({
-                        Title = "SCROLL",
-                        Content = total > 0 and ("scroll on " .. total .. " sections") or "no overflowing sections found (layout differs from expected)",
-                        Icon = total > 0 and "check" or "x",
-                    })
-                end)
-            end
-            task.wait(kScanSec)
-        end
-    end)
 end
 
 -- ============================================================
