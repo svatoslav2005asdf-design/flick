@@ -3245,10 +3245,10 @@ local function ApplyPoseMode(char, mode, tickVal)
                 neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(75), 0, 0)
             end
             if rShoulder and OriginalJointsCache[rShoulder] then
-                rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(0, 0, math.rad(165))
+                rShoulder.C0 = CFrame.new(OriginalJointsCache[rShoulder].Position) * CFrame.Angles(0, 0, math.rad(165)) * OriginalJointsCache[rShoulder].Rotation
             end
             if lShoulder and OriginalJointsCache[lShoulder] then
-                lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(0, 0, -math.rad(165))
+                lShoulder.C0 = CFrame.new(OriginalJointsCache[lShoulder].Position) * CFrame.Angles(0, 0, -math.rad(165)) * OriginalJointsCache[lShoulder].Rotation
             end
             if rHip and OriginalJointsCache[rHip] then
                 rHip.C0 = OriginalJointsCache[rHip]
@@ -3262,10 +3262,10 @@ local function ApplyPoseMode(char, mode, tickVal)
                 neck.C0 = OriginalJointsCache[neck] * CFrame.Angles(-math.rad(70), 0, 0)
             end
             if rShoulder and OriginalJointsCache[rShoulder] then
-                rShoulder.C0 = OriginalJointsCache[rShoulder] * CFrame.Angles(0, 0, math.rad(160))
+                rShoulder.C0 = CFrame.new(OriginalJointsCache[rShoulder].Position) * CFrame.Angles(0, 0, math.rad(160)) * OriginalJointsCache[rShoulder].Rotation
             end
             if lShoulder and OriginalJointsCache[lShoulder] then
-                lShoulder.C0 = OriginalJointsCache[lShoulder] * CFrame.Angles(0, 0, -math.rad(160))
+                lShoulder.C0 = CFrame.new(OriginalJointsCache[lShoulder].Position) * CFrame.Angles(0, 0, -math.rad(160)) * OriginalJointsCache[lShoulder].Rotation
             end
             if airborne then
                 if rHip and OriginalJointsCache[rHip] then
@@ -3388,6 +3388,54 @@ local function ApplyPoseMode(char, mode, tickVal)
     end
 end
 
+-- Weapon and movement animations write Motor6D.Transform after C0 is set.
+-- Release our overrides before animation evaluation, then enforce the pose
+-- after evaluation and again after camera/weapon render callbacks.
+local PoseTransformOverrides = {}
+local function ReleasePoseTransforms()
+    for motor, transform in pairs(PoseTransformOverrides) do
+        if motor.Parent and motor.Transform == CFrame.identity then
+            motor.Transform = transform
+        end
+        PoseTransformOverrides[motor] = nil
+    end
+end
+local function EnforceRaisedPose()
+    local mode = getgenv().SpinMode
+    if not getgenv().SpinEnabled or (mode ~= "Jitler" and mode ~= "Yitler") then
+        ReleasePoseTransforms()
+        return
+    end
+    local char = t1.value99.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then
+        ReleasePoseTransforms()
+        return
+    end
+    ApplyPoseMode(char, mode, tick())
+    for motor in pairs(OriginalJointsCache) do
+        if motor.Parent and motor:IsDescendantOf(char) then
+            local name = motor.Name
+            local arm = name == "Right Shoulder" or name == "Left Shoulder"
+                or name == "RightShoulder" or name == "LeftShoulder"
+                or name == "RightElbow" or name == "LeftElbow"
+            local leg = mode == "Yitler" and (name == "Right Hip" or name == "Left Hip"
+                or name == "RightHip" or name == "LeftHip"
+                or name == "RightKnee" or name == "LeftKnee")
+            if arm or leg then
+                if PoseTransformOverrides[motor] == nil or motor.Transform ~= CFrame.identity then
+                    PoseTransformOverrides[motor] = motor.Transform
+                end
+                motor.Transform = CFrame.identity
+            end
+        end
+    end
+end
+RunService5.PreAnimation:Connect(ReleasePoseTransforms)
+RunService5.PreSimulation:Connect(EnforceRaisedPose)
+RunService5:BindToRenderStep("LesxovRaisedPose", Enum.RenderPriority.Last.Value + 1, EnforceRaisedPose)
+t1.value99.CharacterRemoving:Connect(ReleasePoseTransforms)
+
 -- ============================================================
 -- [SPIN] section (MOVEMENT tab): mode picker is always visible
 -- modes: Basic Spin, Jitler, Yitler, Sway, Static Jitter
@@ -3407,7 +3455,7 @@ do
         Default = false,
         Callback = function(state)
             getgenv().SpinEnabled = state
-            if not state then restore() end
+            if not state then ReleasePoseTransforms() restore() end
         end
     })
     sec:AddDropdown({
@@ -3417,6 +3465,7 @@ do
         Default = getgenv().SpinMode,
         Callback = function(val)
             getgenv().SpinMode = val
+            ReleasePoseTransforms()
             restore()
             if val == "Undo" or val == "Back" or val == "Undo Back" then
                 t1.UndoStart = tick()
