@@ -183,16 +183,25 @@ makeSection = function(container, fallback, title)
 	function sec:AddToggle(o)
 		o = o or {}
 		local el = { Value = o.Default == true }
-		local native = create("Toggle", {
-			Title = tostring(o.Name or "Toggle"), Desc = o.Desc, Value = el.Value,
+		local native
+        local function title(value)
+            return tostring(o.Name or "Toggle") .. (o.StateLabel and (value and ": on" or ": off") or "")
+        end
+        native = create("Toggle", {
+			Title = title(el.Value), Desc = o.Desc, Value = el.Value,
 			Callback = function(v)
 				el.Value = v and true or false
+                if o.StateLabel and native then pcall(function() native:SetTitle(title(el.Value)) end) end
 				if o.Callback then o.Callback(el.Value) end
 			end,
 		})
 		function el:Set(v)
 			v = v and true or false
-			if not (native and pcall(function() native:Set(v) end)) then el.Value = v end
+            el.Value = v
+            if native then
+                pcall(function() native:Set(v) end)
+                if o.StateLabel then pcall(function() native:SetTitle(title(v)) end) end
+            end
 		end
 		return withOption(el, o)
 	end
@@ -442,6 +451,7 @@ do
             end
         end
         if not r.hit and r.cb then pcall(r.cb, v) end
+        if type(el) == "table" then el.Value = v end
         r.last = v
         return true
     end
@@ -493,27 +503,24 @@ local v17 = t1.mVisuals:AddSection({
 })
 do
     local env = getgenv()
-    env.StretchAspect = env.StretchAspect or "Native"
+    if env.StretchEnabled == nil then env.StretchEnabled = false end
+    if not env.StretchAspect or env.StretchAspect == "Native" then env.StretchAspect = "4:3" end
     local ratios = {["4:3"] = 4/3, ["5:4"] = 5/4, ["16:9"] = 16/9,
         ["16:10"] = 16/10, ["3:2"] = 3/2, ["21:9"] = 21/9}
-    local saved = setmetatable({}, {__mode = "k"})
     local lastCamera, applied, clean
     local function restore()
-        if lastCamera and saved[lastCamera] then
-            local original = saved[lastCamera]
-            pcall(function()
-                lastCamera.ViewStretch = original.stretch
-                lastCamera.FieldOfViewMode = original.mode
-            end)
-            saved[lastCamera] = nil
-        end
         if lastCamera and applied and lastCamera.CFrame == applied then
             lastCamera.CFrame = clean
         end
         applied, clean = nil, nil
     end
-    v17:AddDropdown({Name = "Stretch", Flag = "StretchAspect",
-        Values = {"Native", "4:3", "5:4", "16:9", "16:10", "3:2", "21:9"},
+    v17:AddToggle({Name = "Stretch", StateLabel = true, Flag = "StretchEnabled",
+        Default = env.StretchEnabled, Callback = function(on)
+            env.StretchEnabled = on
+            if not on then restore() end
+        end})
+    v17:AddDropdown({Name = "Aspect ratio", Flag = "StretchAspect",
+        Values = {"4:3", "5:4", "16:9", "16:10", "3:2", "21:9"},
         Default = env.StretchAspect, Callback = function(value)
             restore()
             env.StretchAspect = value
@@ -521,32 +528,18 @@ do
     local service = game:GetService("RunService")
     service:UnbindFromRenderStep("LesxovStretchReset")
     service:UnbindFromRenderStep("LesxovStretch")
-    service:BindToRenderStep("LesxovStretchReset", Enum.RenderPriority.First.Value, function()
-        if applied and lastCamera and lastCamera.CFrame == applied then
-            lastCamera.CFrame = clean
-        end
-        applied, clean = nil, nil
-    end)
-    service:BindToRenderStep("LesxovStretch", Enum.RenderPriority.Last.Value + 2, function()
+    service:BindToRenderStep("LesxovStretchReset", Enum.RenderPriority.First.Value, restore)
+    service:BindToRenderStep("LesxovStretch", Enum.RenderPriority.Last.Value + 10, function()
         local camera = workspace.CurrentCamera
         if camera ~= lastCamera then restore() lastCamera = camera end
+        if not env.StretchEnabled or not camera then return end
         local target = ratios[env.StretchAspect]
-        if not camera or not target then return end
         local viewport = camera.ViewportSize
-        if viewport.X <= 0 or viewport.Y <= 0 then return end
+        if not target or viewport.X <= 0 or viewport.Y <= 0 then return end
         local factor = math.clamp((viewport.X / viewport.Y) / target, 0.5, 2)
-        local ok = pcall(function()
-            if not saved[camera] then
-                saved[camera] = {stretch = camera.ViewStretch, mode = camera.FieldOfViewMode}
-            end
-            camera.FieldOfViewMode = Enum.FieldOfViewMode.Vertical
-            camera.ViewStretch = factor
-        end)
-        if not ok then
-            clean = camera.CFrame
-            applied = clean * CFrame.new(0, 0, 0, 1 / factor, 0, 0, 0, 1, 0, 0, 0, 1)
-            camera.CFrame = applied
-        end
+        clean = camera.CFrame
+        applied = clean * CFrame.new(0, 0, 0, 1 / factor, 0, 0, 0, 1, 0, 0, 0, 1)
+        camera.CFrame = applied
     end)
 end
 local v18 = t1.mVisuals:AddSection({
@@ -595,7 +588,7 @@ do
             "PenetrationEnabled", "PenetrationMax",
             "RageMagEnabled", "WallbangEnabled", "WallbangAutoFire", "WallbangFOV",
             "FeatureMode", "PulseAim", "PulseMin", "PulseMax", "PulseSmooth", "PulseSpeed",
-            "StretchAspect", "TrailSource", "TrailOffsetX", "TrailOffsetY", "TrailOffsetZ", "TrailLength", "TrailOpacity", "TrailGlow", "TrailFaceCamera", "TrailEndTint", "RingScale", "MotionTrail", "TrailDetail", "TrailShape", "TrailTint", "TrailWidth", "TrailTip", "TrailTime", "SnowStyle",
+            "StretchEnabled", "StretchAspect", "TrailSource", "TrailOffsetX", "TrailOffsetY", "TrailOffsetZ", "TrailLength", "TrailOpacity", "TrailGlow", "TrailFaceCamera", "TrailEndTint", "RingScale", "MotionTrail", "TrailDetail", "TrailShape", "TrailTint", "TrailWidth", "TrailTip", "TrailTime", "SnowStyle",
             "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll", "UndoDuration",
             "BulletTrailsEnabled", "BulletTrailModel", "BulletTrailLife",
             "Theme", "ThemeHue", "ThemeSat",
@@ -6171,6 +6164,25 @@ do
         end
     end
     addButton(left, "Open config manager (K)", function() t1.toggleCfgManager() end)
+
+    do
+        local colors = vSettings:AddSection({Name = "COLORS"})
+        local ready, applying = false, false
+        colors:AddColorPicker({Name = "All colors", Flag = "GlobalColor", Default = Color3.fromRGB(115, 216, 255),
+            Callback = function(color)
+                if not ready or applying or typeof(color) ~= "Color3" then return end
+                applying = true
+                local reg = t1.Reg
+                for _, flag in ipairs(reg.order) do
+                    local entry = reg.byFlag[flag]
+                    if entry.kind == "color" and flag ~= "GlobalColor" then
+                        reg.apply(entry, color)
+                    end
+                end
+                applying = false
+            end})
+        ready = true
+    end
 
     -- ---------------- THEME (WindUI) ----------------
     local right = vSettings:AddSection({ Position = "right", Name = "THEME" })
