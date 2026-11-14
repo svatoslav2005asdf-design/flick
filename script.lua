@@ -537,7 +537,7 @@ do
             "PenetrationEnabled", "PenetrationMax",
             "RageMagEnabled", "WallbangEnabled", "WallbangAutoFire", "WallbangFOV",
             "FeatureMode", "PulseAim", "PulseMin", "PulseMax", "PulseSmooth", "PulseSpeed",
-            "MotionTrail", "TrailDetail", "TrailShape", "TrailTint", "TrailWidth", "TrailTip", "TrailTime", "SnowStyle",
+            "TrailSource", "TrailOffsetX", "TrailOffsetY", "TrailOffsetZ", "TrailLength", "TrailOpacity", "TrailGlow", "TrailFaceCamera", "TrailEndTint", "RingScale", "MotionTrail", "TrailDetail", "TrailShape", "TrailTint", "TrailWidth", "TrailTip", "TrailTime", "SnowStyle",
             "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll", "UndoDuration",
             "BulletTrailsEnabled", "BulletTrailModel", "BulletTrailLife",
             "Theme", "ThemeHue", "ThemeSat",
@@ -851,7 +851,7 @@ do
         env[key] = value
     end
 end
-getgenv().SnowStyle = "Realistic"
+getgenv().SnowStyle = getgenv().SnowStyle or "Realistic"
 getgenv().BulletTrailsEnabled = getgenv().BulletTrailsEnabled or false
 getgenv().BulletTrailModel = getgenv().BulletTrailModel or "Default"
 getgenv().BulletTrailLife = getgenv().BulletTrailLife or 15
@@ -1982,7 +1982,7 @@ local color3_4 = Color3.fromRGB(255, 255, 255)
 t1.value58 = {
 	Density = 150,
 	Speed = 10,
-	Size = 0.2,
+	Size = 0.2, Transparency = 0.2, Radius = 45, Wind = 3,
 	Color = color3_4
 }
 t1.value59 = {
@@ -2062,11 +2062,11 @@ AddColorPicker2(Option3, {
 end
 })
 v54.Option:AddSlider({
-	Name = "Snow Density",
+	Name = "Snow Count",
 	Flag = "SnowDensity",
-	Min = 50,
-	Max = 400,
-	Default = 250,
+	Min = 0,
+	Max = 1000,
+	Default = t1.value58.Density,
 	Callback = function(p47)
     t1.value58.Density = p47
 end
@@ -2074,9 +2074,9 @@ end
 v54.Option:AddSlider({
 	Name = "Snow Speed",
 	Flag = "SnowSpeed",
-	Min = 10,
+	Min = 0,
 	Max = 100,
-	Default = 30,
+	Default = t1.value58.Speed,
 	Callback = function(p48)
     t1.value58.Speed = p48
 end
@@ -2092,6 +2092,19 @@ Option4:AddColorPicker({
     t1.value58.Color = p49
 end
 })
+do
+    for _, spec in ipairs({
+        {"Snow Size (0.01 studs)", "Size", 1, 150, 100},
+        {"Snow Transparency (%)", "Transparency", 0, 100, 100},
+        {"Snow Radius", "Radius", 5, 100, 1},
+        {"Snow Wind", "Wind", 0, 30, 1},
+    }) do
+        local key, scale = spec[2], spec[5]
+        Option4:AddSlider({Name = spec[1], Flag = "Snow" .. key,
+            Min = spec[3], Max = spec[4], Default = t1.value58[key] * scale,
+            Callback = function(value) t1.value58[key] = value / scale end})
+    end
+end
 Option4:AddDropdown({
         Name = "Snow Style",
         Flag = "SnowStyle",
@@ -2138,44 +2151,49 @@ t1.value53.RenderStepped:Connect(function(dt)
     end
 
     if t1.value59.Type == "Snow" then
-        local style = getgenv().SnowStyle or "Realistic"
-        local snowDt = dt
-        if #t1.value56 < t1.value58.Density then
-            local Part = Instance.new("Part")
-
-            Part.Anchored = true
-            Part.CanCollide = false
-            Part.CanQuery = false
-            Part.Color = t1.value58.Color
-            Part.Material = Enum.Material.Neon
-            if style == "Line" then
-                -- падают строчкой
-                Part.Size = Vector3.new(0.06, 2.2, 0.06)
-                Part.Transparency = 0.3
-            else
-                -- как в реальной жизни: хлопья с дрейфом
-                Part.Shape = Enum.PartType.Ball
-                Part.Size = Vector3.new(t1.value58.Size, t1.value58.Size, t1.value58.Size)
-                Part.Transparency = 0.2
-            end
-            Part.Parent = t1.value1
-            Part:SetAttribute("SnowSeed", math.random() * math.pi * 2)
-            table.insert(t1.value56, Part)
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+        local cfg = t1.value58
+        local center, radius = camera.CFrame.Position, cfg.Radius
+        while #t1.value56 > cfg.Density do
+            table.remove(t1.value56):Destroy()
         end
-
-        for _, v in pairs(t1.value56) do
-            if v and v.Parent then
-                if v.Position.Y < t1.value54.CFrame.Position.Y - 30 then
-                    v.Position = t1.value54.CFrame.Position + Vector3.new(math.random(-60, 60), 60, math.random(-60, 60))
-                else
-                    local fall = Vector3.new(0, t1.value58.Speed * snowDt, 0)
-                    if style == "Realistic" then
-                        local seed = v:GetAttribute("SnowSeed") or 0
-                        fall = fall + Vector3.new(math.sin(tick() * 1.5 + seed) * snowDt * 6, 0, math.cos(tick() * 1.1 + seed) * snowDt * 4)
-                    end
-                    v.Position = v.Position - fall
-                end
+        local function position(initial)
+            return center + Vector3.new((math.random() * 2 - 1) * radius,
+                initial and (math.random() * 2 - 1) * radius or radius,
+                (math.random() * 2 - 1) * radius)
+        end
+        for _ = 1, math.min(30, cfg.Density - #t1.value56) do
+            local part = Instance.new("Part")
+            part.Anchored, part.CanCollide, part.CanQuery, part.CanTouch = true, false, false, false
+            part.Transparency, part.CastShadow = 1, false
+            part.Size, part.Position = Vector3.one * 0.05, position(true)
+            part:SetAttribute("SnowSeed", math.random() * math.pi * 2)
+            local gui = Instance.new("BillboardGui")
+            gui.Name, gui.LightInfluence, gui.AlwaysOnTop = "Flake", 0, false
+            local image = Instance.new("ImageLabel")
+            image.BackgroundTransparency = 1
+            image.Size = UDim2.fromScale(1, 1)
+            image.Image = "rbxasset://textures/particles/sparkles_main.dds"
+            image.Parent, gui.Parent = gui, part
+            part.Parent = camera
+            table.insert(t1.value56, part)
+        end
+        for _, part in ipairs(t1.value56) do
+            local seed = part:GetAttribute("SnowSeed") or 0
+            local drift = Vector3.new(math.sin(os.clock() * 1.5 + seed) * cfg.Wind,
+                -cfg.Speed, math.cos(os.clock() + seed) * cfg.Wind * 0.6)
+            part.Position = part.Position + drift * dt
+            local delta = part.Position - center
+            if delta.Y < -radius or math.abs(delta.X) > radius or math.abs(delta.Z) > radius then
+                part.Position = position(false)
             end
+            part.Parent = camera
+            local gui = part.Flake
+            local line = getgenv().SnowStyle == "Line"
+            gui.Size = UDim2.fromScale(cfg.Size, cfg.Size * (line and 6 or 1))
+            gui.ImageLabel.ImageColor3 = cfg.Color
+            gui.ImageLabel.ImageTransparency = cfg.Transparency
         end
     end
 end)
@@ -5350,6 +5368,11 @@ do
         trigger(char, name, kcol, CFrame.new(pos, pos - flat.Unit))
     end
 
+    for key, value in pairs({TrailSource = "Body", TrailOffsetX = 0, TrailOffsetY = -5,
+        TrailOffsetZ = 5, TrailLength = 30, TrailOpacity = 88, TrailGlow = 40,
+        TrailFaceCamera = true, TrailEndTint = "73D8FF", RingScale = 100}) do
+        if env[key] == nil then env[key] = value end
+    end
     -- ---------------- China hat ----------------
     local hatCol = fromHex(env.HatColorHex, Color3.fromRGB(255, 77, 109))
     local hat = { discs = {}, balls = {}, key = nil, rot = 0 }
@@ -5365,11 +5388,12 @@ do
         local R = env.HatSize or 3
         local woven = env.FeatureMode == "New" and env.HatDetail == "Woven"
         local detailed = env.HatDetail == "Detailed" or woven
-        local n = detailed and 22 or 6
-        local H = R * 0.55
+        local realistic = env.HatDetail == "Realistic"
+        local n = realistic and 1 or (detailed and 22 or 6)
+        local H = realistic and 0.08 or R * 0.55
         for i = 1, n do
-            local r = R * (1 - (i - 0.5) / n)
-            local p = mk(Vector3.new(H / n * 1.15, r * 2, r * 2), CFrame.new(), hatCol, NEON, 0.4)
+            local r = realistic and R or R * (1 - (i - 0.5) / n)
+            local p = mk(Vector3.new(H / n * 1.15, r * 2, r * 2), CFrame.new(), hatCol, realistic and SMOOTH or NEON, 0.4)
             p.Shape = Enum.PartType.Cylinder
             hat.discs[#hat.discs + 1] = { p = p, y = (i - 0.5) * H / n, hue = i / n }
         end
@@ -5456,7 +5480,7 @@ do
                 for _, p in ipairs(s.segs) do p:Destroy() end
                 table.remove(shapes, i)
             else
-                local r = s.max * (1 - (1 - a) ^ 3)
+                local r = (env.JumpSize or s.max) * (env.RingScale or 100) / 100 * (1 - (1 - a) ^ 3)
                 local off = (s.sides == 3 and -PI / 2) or (s.sides == 4 and PI / 4) or 0
                 if s.circle then
                     local d = math.max(r * 2, 0.02)
@@ -5542,7 +5566,7 @@ do
         slider(pulse, "PulseSpeed", "Full expansion speed (studs/s)", 1, 80)
 
         local sec = t1.mFx:AddSection({Position = "right", Name = "MOVEMENT TRAILS"})
-        sec:AddToggle({Name = "Player trail (New)", Flag = "MotionTrail", Default = env.MotionTrail,
+        sec:AddToggle({Name = "Player trail", Flag = "MotionTrail", Default = env.MotionTrail,
             Callback = function(v) env.MotionTrail = v end})
         sec:AddDropdown({Name = "Detail", Flag = "TrailDetail", Values = {"Simple", "Detailed"}, Default = env.TrailDetail,
             Callback = function(v) env.TrailDetail = v end})
@@ -5552,7 +5576,21 @@ do
             Callback = function(v) env.TrailTint = toHex(v) end})
         slider(sec, "TrailWidth", "Start width (0.1 studs)", 1, 50)
         slider(sec, "TrailTip", "End width (%)", 0, 100)
-        slider(sec, "TrailTime", "Lifetime (0.1 s)", 1, 40)
+        slider(sec, "TrailTime", "Lifetime (0.1 s)", 1, 100)
+        sec:AddDropdown({Name = "Source", Flag = "TrailSource", Values = {"Body", "Head", "Left hand", "Right hand", "Left foot", "Right foot"}, Default = env.TrailSource,
+            Callback = function(v) env.TrailSource = v end})
+        for _, spec in ipairs({
+            {"TrailOffsetX", "Offset X (0.1 studs)", -100, 100},
+            {"TrailOffsetY", "Offset Y (0.1 studs)", -100, 100},
+            {"TrailOffsetZ", "Offset Z (0.1 studs)", -100, 100},
+            {"TrailLength", "Maximum length (studs)", 1, 200},
+            {"TrailOpacity", "Opacity (%)", 0, 100},
+            {"TrailGlow", "Glow (%)", 0, 100},
+        }) do slider(sec, spec[1], spec[2], spec[3], spec[4]) end
+        sec:AddColorPicker({Name = "End color", Flag = "TrailEndTintPicker", Default = fromHex(env.TrailEndTint, Color3.new(1,1,1)),
+            Callback = function(v) env.TrailEndTint = toHex(v) end})
+        sec:AddToggle({Name = "Face camera", Flag = "TrailFaceCamera", Default = env.TrailFaceCamera,
+            Callback = function(v) env.TrailFaceCamera = v end})
 
         local active, owner, signature = {}, nil, nil
         local function strip(root, center, axis, width, tint, detailed)
@@ -5563,10 +5601,12 @@ do
             trail.Attachment0, trail.Attachment1 = a, b
             trail.Lifetime = env.TrailTime / 10
             trail.MinLength = 0.025
+            trail.MaxLength = env.TrailLength
+            trail.FaceCamera = env.TrailFaceCamera
             trail.WidthScale = NumberSequence.new(1, env.TrailTip / 100)
-            trail.Color = ColorSequence.new(detailed and tint:Lerp(Color3.new(1,1,1), 0.65) or tint, tint)
-            trail.Transparency = NumberSequence.new(0.12, 1)
-            trail.LightEmission = detailed and 1 or 0.4
+            trail.Color = ColorSequence.new(tint, fromHex(env.TrailEndTint, tint))
+            trail.Transparency = NumberSequence.new(1 - env.TrailOpacity / 100, 1)
+            trail.LightEmission = env.TrailGlow / 100
             trail.Parent = root
             table.insert(active, trail)
             table.insert(active, a)
@@ -5574,9 +5614,20 @@ do
         end
         RunService.Heartbeat:Connect(function()
             local char = lp.Character
-            local root = env.FeatureMode == "New" and env.MotionTrail and char and char:FindFirstChild("HumanoidRootPart") or nil
+            local sourceNames = {
+                Body = {"HumanoidRootPart"}, Head = {"Head"},
+                ["Left hand"] = {"LeftHand", "Left Arm"}, ["Right hand"] = {"RightHand", "Right Arm"},
+                ["Left foot"] = {"LeftFoot", "Left Leg"}, ["Right foot"] = {"RightFoot", "Right Leg"},
+            }
+            local root
+            if env.MotionTrail and char then
+                for _, name in ipairs(sourceNames[env.TrailSource] or sourceNames.Body) do
+                    root = char:FindFirstChild(name)
+                    if root then break end
+                end
+            end
             if not root and not owner then return end
-            local key = root and table.concat({env.TrailDetail, env.TrailShape, env.TrailTint, env.TrailWidth, env.TrailTip, env.TrailTime}, "|")
+            local key = root and table.concat({env.TrailDetail, env.TrailShape, env.TrailTint, env.TrailWidth, env.TrailTip, env.TrailTime, env.TrailSource, env.TrailOffsetX, env.TrailOffsetY, env.TrailOffsetZ, env.TrailLength, env.TrailOpacity, env.TrailGlow, tostring(env.TrailFaceCamera), env.TrailEndTint}, "|")
             if root == owner and key == signature then return end
             for _, obj in ipairs(active) do obj:Destroy() end
             table.clear(active)
@@ -5585,7 +5636,7 @@ do
             local width = env.TrailWidth / 10
             local color = fromHex(env.TrailTint, Color3.new(1,1,1))
             local detail = env.TrailDetail == "Detailed"
-            local origin = Vector3.new(0,-0.5,0.45)
+            local origin = Vector3.new(env.TrailOffsetX, env.TrailOffsetY, env.TrailOffsetZ) / 10
             if env.TrailShape == "Twin" then
                 for _, side in ipairs({-1,1}) do
                     strip(root, origin + Vector3.xAxis * side * width / 2, Vector3.yAxis, width / 2, color, detail)
@@ -5613,7 +5664,7 @@ do
     local sh = t1.mFx:AddSection({ Position = "center", Name = "CHINA HAT" })
     sh:AddToggle({ Name = "China hat", Flag = "HatEnabledT", Default = env.HatEnabled,
         Callback = function(p) env.HatEnabled = p end })
-    sh:AddDropdown({ Name = "Detail", Flag = "HatDetailD", Values = { "Simple", "Detailed", "Woven" }, Default = env.HatDetail,
+    sh:AddDropdown({ Name = "Detail", Flag = "HatDetailD", Values = { "Simple", "Detailed", "Woven", "Realistic" }, Default = env.HatDetail,
         Callback = function(p) env.HatDetail = p end })
     sh:AddSlider({ Name = "Size", Flag = "HatSizeS", Min = 1, Max = 8, Default = math.clamp(env.HatSize, 1, 8),
         Callback = function(p) env.HatSize = p end })
@@ -5633,6 +5684,8 @@ do
         Callback = function(p) env.JumpFxEnabled = p end })
     sj:AddDropdown({ Name = "Shape", Flag = "JumpShapeD", Values = { "Circle", "Square", "Triangle" }, Default = env.JumpShape,
         Callback = function(p) env.JumpShape = p end })
+    sj:AddSlider({Name = "Circle scale (%)", Flag = "RingScale", Min = 10, Max = 300, Default = env.RingScale,
+        Callback = function(v) env.RingScale = v end})
     sj:AddToggle({ Name = "On jump", Flag = "JumpOnJumpT", Default = env.JumpOnJump,
         Callback = function(p) env.JumpOnJump = p end })
     sj:AddToggle({ Name = "On landing", Flag = "JumpOnLandT", Default = env.JumpOnLand,
@@ -6093,40 +6146,3 @@ task.spawn(function()
     end
     pcall(function() v11:Notify({ Title = "CONFIG", Content = msg, Icon = setter and "check" or "x" }) end)
 end)
-
-do
-    local sec = t1.mVisuals:AddSection({Name = "WORLD FX"})
-    local emitter, anchor, connection
-    local function clear()
-        if connection then connection:Disconnect() connection = nil end
-        if anchor then anchor:Destroy() anchor = nil end
-        emitter = nil
-    end
-    sec:AddToggle({Name = "Ambient particles", Flag = "AmbientParticles", Default = false,
-        Callback = function(enabled)
-            clear()
-            if not enabled then return end
-            anchor = Instance.new("Part")
-            anchor.Anchored, anchor.CanCollide, anchor.CanQuery, anchor.CanTouch = true, false, false, false
-            anchor.Transparency = 1
-            anchor.Size = Vector3.new(FX_TUNING.AmbientRadius * 2, 20, FX_TUNING.AmbientRadius * 2)
-            emitter = Instance.new("ParticleEmitter")
-            emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-            emitter.Color = ColorSequence.new(Color3.fromRGB(80, 145, 255))
-            emitter.LightEmission = 1
-            emitter.Rate = FX_TUNING.AmbientRate
-            emitter.Lifetime = NumberRange.new(FX_TUNING.AmbientLifetime)
-            emitter.Speed = NumberRange.new(0.3, 1)
-            emitter.SpreadAngle = Vector2.new(180, 180)
-            emitter.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.3, 0.16), NumberSequenceKeypoint.new(1, 0)})
-            emitter.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.15), NumberSequenceKeypoint.new(1, 1)})
-            emitter.Parent = anchor
-            connection = game:GetService("RunService").RenderStepped:Connect(function()
-                local camera = workspace.CurrentCamera
-                if camera then
-                    anchor.CFrame = CFrame.new(camera.CFrame.Position)
-                    anchor.Parent = camera
-                end
-            end)
-        end})
-end
