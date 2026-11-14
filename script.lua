@@ -1,3 +1,9 @@
+local FX_TUNING = {
+    RingCanvas = 512, RingStroke = 5, RingLimit = 24,
+    JitterPeriod = 0.09, AntiPitch = -32, AntiRoll = 14,
+    AmbientRate = 16, AmbientRadius = 24, AmbientLifetime = 3,
+}
+
 local t1 = {
 	value1 = game:GetService("Workspace")
 }
@@ -74,6 +80,36 @@ task.spawn(function()
         end
     end
 end)
+
+function t1.makeRing(parent, cf, color)
+    local p = Instance.new("Part")
+    p.Name = "Ring"
+    p.Anchored, p.CanCollide, p.CanTouch, p.CanQuery = true, false, false, false
+    p.CastShadow, p.Transparency = false, 1
+    p.Size, p.CFrame = Vector3.new(1, 0.02, 1), cf
+    for _, face in ipairs({Enum.NormalId.Top, Enum.NormalId.Bottom}) do
+        local gui = Instance.new("SurfaceGui")
+        gui.Face, gui.CanvasSize = face, Vector2.new(FX_TUNING.RingCanvas, FX_TUNING.RingCanvas)
+        gui.AlwaysOnTop, gui.LightInfluence = false, 0
+        local f = Instance.new("Frame")
+        f.BackgroundTransparency = 1
+        f.Position, f.Size = UDim2.fromOffset(8, 8), UDim2.new(1, -16, 1, -16)
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius, corner.Parent = UDim.new(0.5, 0), f
+        local stroke = Instance.new("UIStroke")
+        stroke.Color, stroke.Thickness, stroke.Parent = color, FX_TUNING.RingStroke, f
+        f.Parent, gui.Parent = gui, p
+    end
+    p.Parent = parent
+    return p
+end
+function t1.fadeRing(p, alpha)
+    for _, gui in ipairs(p:GetChildren()) do
+        local f = gui:FindFirstChildOfClass("Frame")
+        local stroke = f and f:FindFirstChildOfClass("UIStroke")
+        if stroke then stroke.Transparency = math.clamp(alpha, 0, 1) end
+    end
+end
 
 local QualityLevel = settings().Rendering.QualityLevel
 if QualityLevel == Enum.QualityLevel.Level01 or (QualityLevel == Enum.QualityLevel.Level02 or QualityLevel == Enum.QualityLevel.Level03) then
@@ -252,8 +288,8 @@ function v13:AddMenu(o)
 	return menu
 end
 
-v11:Notify({ Title = "Lesxov Tap", Content = "made by lesxov", Icon = "clipboard" })
-v11:Notify({ Title = "LESXOV TAP LOADED", Content = "Hello, " .. game.Players.LocalPlayer.DisplayName .. "! Welcome back.", Icon = "check" })
+
+
 
 local function mkMenu(name, icon)
 	local ok, m = pcall(function()
@@ -3442,7 +3478,7 @@ t1.value99.CharacterRemoving:Connect(ReleasePoseTransforms)
 -- ============================================================
 do
     local sec = t1.mMove:AddSection({ Position = "center", Name = "SPIN" })
-    local modes = { "Basic Spin", "Jitler", "Yitler", "Sway", "Static Jitter", "Undo", "Back", "Undo Back" }
+    local modes = { "Basic Spin", "Jitler", "Yitler", "Sway", "Static Jitter", "Anti Aim", "Undo", "Back", "Undo Back" }
     if not table.find(modes, getgenv().SpinMode) then getgenv().SpinMode = "Basic Spin" end
 
     local function restore()
@@ -3588,7 +3624,7 @@ RunService5.RenderStepped:Connect(function(dt)
     local rollDeg = getgenv().SpinDesyncRoll or 0
 
     currentSpinYaw = (currentSpinYaw + speed * dt * 25) % 360
-    jitterFlip = not jitterFlip
+    jitterFlip = math.floor(os.clock() / FX_TUNING.JitterPeriod) % 2 == 0
 
     local finalYaw = math.rad(currentSpinYaw)
     -- Jitler / Yitler: чистый спин, jitter остаётся только в позе — без размазанного yaw
@@ -3603,7 +3639,14 @@ RunService5.RenderStepped:Connect(function(dt)
     end
 
     local pos = hrp.Position
-    if mode == "Undo" then
+    if mode == "Anti Aim" then
+        local camera = workspace.CurrentCamera
+        local _, yaw = (camera and camera.CFrame or hrp.CFrame):ToOrientation()
+        finalYaw = yaw + math.pi + math.rad(jitterFlip and jitterDeg or -jitterDeg)
+        hrp.CFrame = CFrame.new(pos) * CFrame.Angles(0, finalYaw, 0)
+            * CFrame.Angles(math.rad(FX_TUNING.AntiPitch), 0,
+                math.rad((jitterFlip and 1 or -1) * (rollDeg > 0 and rollDeg or FX_TUNING.AntiRoll)))
+    elseif mode == "Undo" then
         hrp.CFrame = CFrame.new(pos) * CFrame.Angles(0, finalYaw, 0) * CFrame.Angles(math.rad(30), 0, 0)
     else
         hrp.CFrame = CFrame.new(pos) * CFrame.Angles(0, finalYaw, math.rad(rollDeg))
@@ -4446,9 +4489,11 @@ local function CreateBulletTrail(startPos, endPos, color)
         trailBall(endPos + Vector3.new(0, rnd() * 0.6, 0) + j, 0.18, Color3.fromRGB(255, 150, 20), 0.6)
     elseif model == "Rings" then
         if trailFrame % 2 == 0 then
-            local ring = trailPart(Vector3.new(0.12, 1.4, 1.4), CFrame.new(endPos, endPos + dir) * CFrame.Angles(0, math.rad(90), 0),
-                color, 0.8, 0.3)
-            ring.Shape = Enum.PartType.Cylinder
+            local ring = t1.makeRing(getTrailFolder(),
+                CFrame.lookAt(endPos, endPos + dir) * CFrame.Angles(math.pi / 2, 0, 0), color)
+            ring.Size = Vector3.new(1.4, 0.02, 1.4)
+            local life = 0.8 * (getgenv().BulletTrailLife or 15) / 15
+            TrailsList[#TrailsList + 1] = {Part = ring, Life = life, Max = life, Base = 0.3, Ring = true}
         end
         trailSeg(startPos, endPos, 0.06, color, 0.8)
     elseif model == "Glitch" then
@@ -4475,7 +4520,8 @@ RunService.RenderStepped:Connect(function(dt)
             end)
             table.remove(TrailsList, i)
         else
-            t.Part.Transparency = t.Base + (1 - t.Base) * (1 - t.Life / t.Max)
+            local alpha = t.Base + (1 - t.Base) * (1 - t.Life / t.Max)
+            if t.Ring then t1.fadeRing(t.Part, alpha) else t.Part.Transparency = alpha end
         end
     end
 end)
@@ -4731,12 +4777,11 @@ do
     end
 
     local function ring(pos, color, r, dur)
-        local p = mk(Vector3.new(0.3, 1, 1), CFrame.new(pos) * CFrame.Angles(0, 0, PI / 2), color)
-        p.Shape = Enum.PartType.Cylinder
+        local p = t1.makeRing(fx(), CFrame.new(pos), color)
         run(dur, function(_, a)
             local d = math.max(r * 2 * (1 - (1 - a) ^ 3), 0.1)
-            p.Size = Vector3.new(0.3, d, d)
-            p.Transparency = a
+            p.Size = Vector3.new(d, 0.02, d)
+            t1.fadeRing(p, a)
         end, function() p:Destroy() end)
     end
 
@@ -5386,9 +5431,18 @@ do
     local function spawnShape(center)
         local sides = ({ Circle = 28, Square = 4, Triangle = 3 })[env.JumpShape or "Circle"] or 28
         local segs = {}
-        for i = 1, sides do segs[i] = mk(Vector3.new(0.25, 0.12, 1), CFrame.new(center), jcol, NEON, 0) end
+        local circle = (env.JumpShape or "Circle") == "Circle"
+        if circle then
+            segs[1] = t1.makeRing(fx(), CFrame.new(center), jcol)
+        else
+            for i = 1, sides do segs[i] = mk(Vector3.new(0.25, 0.12, 1), CFrame.new(center), jcol, NEON, 0) end
+        end
+        if #shapes >= FX_TUNING.RingLimit then
+            for _, part in ipairs(shapes[1].segs) do part:Destroy() end
+            table.remove(shapes, 1)
+        end
         shapes[#shapes + 1] = {
-            segs = segs, sides = sides, c = center, t = 0, spin = math.random() * PI,
+            circle = circle, segs = segs, sides = sides, c = center, t = 0, spin = math.random() * PI,
             dur = math.max((env.JumpDur or 8) / 10, 0.2), max = env.JumpSize or 6,
         }
     end
@@ -5404,6 +5458,11 @@ do
             else
                 local r = s.max * (1 - (1 - a) ^ 3)
                 local off = (s.sides == 3 and -PI / 2) or (s.sides == 4 and PI / 4) or 0
+                if s.circle then
+                    local d = math.max(r * 2, 0.02)
+                    s.segs[1].Size = Vector3.new(d, 0.02, d)
+                    t1.fadeRing(s.segs[1], a * a)
+                else
                 local verts = {}
                 for k = 0, s.sides - 1 do
                     local ang = off + s.spin * 0 + a * 1.2 + k / s.sides * 2 * PI
@@ -5418,6 +5477,7 @@ do
                         seg.CFrame = CFrame.new(v1, v2) * CFrame.new(0, 0, -len / 2)
                     end
                     seg.Transparency = a * a
+                end
                 end
             end
         end
@@ -6033,3 +6093,40 @@ task.spawn(function()
     end
     pcall(function() v11:Notify({ Title = "CONFIG", Content = msg, Icon = setter and "check" or "x" }) end)
 end)
+
+do
+    local sec = t1.mVisuals:AddSection({Name = "WORLD FX"})
+    local emitter, anchor, connection
+    local function clear()
+        if connection then connection:Disconnect() connection = nil end
+        if anchor then anchor:Destroy() anchor = nil end
+        emitter = nil
+    end
+    sec:AddToggle({Name = "Ambient particles", Flag = "AmbientParticles", Default = false,
+        Callback = function(enabled)
+            clear()
+            if not enabled then return end
+            anchor = Instance.new("Part")
+            anchor.Anchored, anchor.CanCollide, anchor.CanQuery, anchor.CanTouch = true, false, false, false
+            anchor.Transparency = 1
+            anchor.Size = Vector3.new(FX_TUNING.AmbientRadius * 2, 20, FX_TUNING.AmbientRadius * 2)
+            emitter = Instance.new("ParticleEmitter")
+            emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+            emitter.Color = ColorSequence.new(Color3.fromRGB(80, 145, 255))
+            emitter.LightEmission = 1
+            emitter.Rate = FX_TUNING.AmbientRate
+            emitter.Lifetime = NumberRange.new(FX_TUNING.AmbientLifetime)
+            emitter.Speed = NumberRange.new(0.3, 1)
+            emitter.SpreadAngle = Vector2.new(180, 180)
+            emitter.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.3, 0.16), NumberSequenceKeypoint.new(1, 0)})
+            emitter.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.15), NumberSequenceKeypoint.new(1, 1)})
+            emitter.Parent = anchor
+            connection = game:GetService("RunService").RenderStepped:Connect(function()
+                local camera = workspace.CurrentCamera
+                if camera then
+                    anchor.CFrame = CFrame.new(camera.CFrame.Position)
+                    anchor.Parent = camera
+                end
+            end)
+        end})
+end
