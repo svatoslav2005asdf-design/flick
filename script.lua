@@ -1,5 +1,6 @@
 local FX_TUNING = {
     RingCanvas = 512, RingStroke = 5, RingLimit = 24,
+    TrailOverlaySamples = 96, TrailOverlayStep = 1 / 30,
     JitterPeriod = 0.09, AntiPitch = -32, AntiRoll = 14,
     AmbientRate = 16, AmbientRadius = 24, AmbientLifetime = 3,
 }
@@ -81,6 +82,153 @@ task.spawn(function()
     end
 end)
 
+-- Shared character and depth policy for character-bound visuals.
+do
+    local Players = game:GetService("Players")
+    local env = getgenv()
+    env.VisualTargets = env.VisualTargets or "All"
+    if env.VisualThroughWalls == nil then env.VisualThroughWalls = false end
+    local actors = setmetatable({}, {__mode = "k"})
+    local function add(hum)
+        if hum:IsA("Humanoid") and hum.Parent:IsA("Model") then actors[hum.Parent] = hum end
+    end
+    for _, obj in ipairs(workspace:GetDescendants()) do add(obj) end
+    workspace.DescendantAdded:Connect(add)
+    function t1.visualAllowed(char)
+        if not char then return false end
+        local player = Players:GetPlayerFromCharacter(char)
+        local mode = env.VisualTargets
+        return mode == "All" or (mode == "Self" and player == Players.LocalPlayer)
+            or (mode == "Other players" and player ~= nil and player ~= Players.LocalPlayer)
+            or (mode == "NPCs" and player == nil)
+    end
+    function t1.visualActors()
+        local list = {}
+        for char, hum in pairs(actors) do
+            if not char:IsDescendantOf(workspace) then actors[char] = nil
+            elseif hum.Health > 0 and t1.visualAllowed(char) then list[#list + 1] = char end
+        end
+        return list
+    end
+    function t1.visualVisible(char, point)
+        if not t1.visualAllowed(char) then return false end
+        if env.VisualThroughWalls then return true end
+        local camera = workspace.CurrentCamera
+        local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
+        if not camera or not (point or root) then return false end
+        local goal = point or root.Position
+        local delta = goal - camera.CFrame.Position
+        if delta.Magnitude < 0.01 then return true end
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        local ignore = {camera}
+        if Players.LocalPlayer.Character then ignore[#ignore + 1] = Players.LocalPlayer.Character end
+        params.FilterDescendantsInstances = ignore
+        local hit = workspace:Raycast(camera.CFrame.Position, delta, params)
+        return not hit or hit.Instance:IsDescendantOf(char)
+    end
+    t1.visualParts = setmetatable({}, {__mode = "k"})
+    function t1.trackVisual(part, char)
+        t1.visualParts[part] = {char = char or t1.visualOwner or Players.LocalPlayer.Character}
+        return part
+    end
+    game:GetService("RunService"):BindToRenderStep("LesxovVisualDepth", Enum.RenderPriority.Last.Value + 20, function()
+        for part, state in pairs(t1.visualParts) do
+            if not part.Parent then
+                if state.overlay then state.overlay:Destroy() end
+                t1.visualParts[part] = nil
+            else
+                local allowed = t1.visualAllowed(state.char)
+                part.LocalTransparencyModifier = allowed and 0 or 1
+                local surface = part:FindFirstChildOfClass("SurfaceGui")
+                for _, gui in ipairs(part:GetChildren()) do
+                    if gui:IsA("SurfaceGui") then
+                        gui.Enabled = allowed
+                        gui.AlwaysOnTop = env.VisualThroughWalls
+                    end
+                end
+                if allowed and env.VisualThroughWalls and not surface then
+                    local shape = part:IsA("Part") and part.Shape
+                    local kind = shape == Enum.PartType.Ball and "SphereHandleAdornment"
+                        or shape == Enum.PartType.Cylinder and "CylinderHandleAdornment" or "BoxHandleAdornment"
+                    if not state.overlay or state.overlay.ClassName ~= kind then
+                        if state.overlay then state.overlay:Destroy() end
+                        state.overlay = Instance.new(kind)
+                        state.overlay.Adornee, state.overlay.AlwaysOnTop = part, true
+                        state.overlay.ZIndex, state.overlay.Parent = 1, part
+                    end
+                    local a = state.overlay
+                    a.Visible, a.Color3, a.Transparency = true, part.Color, part.Transparency
+                    if kind == "SphereHandleAdornment" then a.Radius = part.Size.X / 2
+                    elseif kind == "CylinderHandleAdornment" then
+                        a.Radius, a.Height = part.Size.Y / 2, part.Size.X
+                        a.CFrame = CFrame.Angles(0, math.pi / 2, 0)
+                    else a.Size = part.Size end
+                elseif state.overlay then state.overlay.Visible = false end
+            end
+        end
+    end)
+end
+
+do
+    local trails = {}
+    function t1.trackTrail(trail, char)
+        trails[trail] = {char = char, history = {}, quads = {}, at = 0}
+    end
+    game:GetService("RunService"):BindToRenderStep("LesxovTrailDepth", Enum.RenderPriority.Last.Value + 21, function()
+        local camera = workspace.CurrentCamera
+        local now = os.clock()
+        for trail, state in pairs(trails) do
+            if not trail.Parent then
+                for _, q in pairs(state.quads) do q:Remove() end
+                trails[trail] = nil
+            else
+                local enabled = getgenv().VisualThroughWalls and t1.visualAllowed(state.char)
+                trail.Enabled = not getgenv().VisualThroughWalls and t1.visualAllowed(state.char)
+                local a, b = trail.Attachment0, trail.Attachment1
+                if enabled and a and b and now - state.at >= FX_TUNING.TrailOverlayStep then
+                    state.at = now
+                    local previous = state.history[#state.history]
+                    local center = (a.WorldPosition + b.WorldPosition) / 2
+                    if not previous or (previous.center - center).Magnitude > trail.MinLength then
+                        state.history[#state.history + 1] = {a = a.WorldPosition, b = b.WorldPosition, center = center, t = now}
+                    end
+                end
+                if not enabled then table.clear(state.history) end
+                while #state.history > 0 and (now - state.history[1].t > trail.Lifetime or #state.history > FX_TUNING.TrailOverlaySamples) do
+                    table.remove(state.history, 1)
+                end
+                for _, q in pairs(state.quads) do q.Visible = false end
+                local length = 0
+                for i = #state.history, 2, -1 do
+                    local newer, older = state.history[i], state.history[i - 1]
+                    length = length + (newer.center - older.center).Magnitude
+                    if length > trail.MaxLength then break end
+                    local q = state.quads[i]
+                    if not q then q = Drawing.new("Quad"); q.Filled = true; state.quads[i] = q end
+                    if camera and enabled then
+                        local age = math.clamp((now - older.t) / trail.Lifetime, 0, 1)
+                        local scale = 1 + (getgenv().TrailTip / 100 - 1) * age
+                        local function project(sample, endpoint)
+                            return camera:WorldToViewportPoint(sample.center + (endpoint - sample.center) * scale)
+                        end
+                        local p1, p2 = project(newer, newer.a), project(newer, newer.b)
+                        local p3, p4 = project(older, older.b), project(older, older.a)
+                        q.Visible = p1.Z > 0 and p2.Z > 0 and p3.Z > 0 and p4.Z > 0
+                        if q.Visible then
+                            q.PointA, q.PointB = Vector2.new(p1.X,p1.Y), Vector2.new(p2.X,p2.Y)
+                            q.PointC, q.PointD = Vector2.new(p3.X,p3.Y), Vector2.new(p4.X,p4.Y)
+                            local keys = trail.Color.Keypoints
+                            q.Color = keys[1].Value:Lerp(keys[#keys].Value, age)
+                            q.Transparency = (getgenv().TrailOpacity / 100) * (1 - age)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
 function t1.makeRing(parent, cf, color)
     local p = Instance.new("Part")
     p.Name = "Ring"
@@ -101,6 +249,7 @@ function t1.makeRing(parent, cf, color)
         f.Parent, gui.Parent = gui, p
     end
     p.Parent = parent
+    t1.trackVisual(p)
     return p
 end
 function t1.fadeRing(p, alpha)
@@ -542,6 +691,14 @@ do
         camera.CFrame = applied
     end)
 end
+do
+    local section = t1.mVisuals:AddSection({Name = "VISIBILITY"})
+    section:AddToggle({Name = "Through walls", StateLabel = true, Flag = "VisualThroughWalls",
+        Default = getgenv().VisualThroughWalls, Callback = function(v) getgenv().VisualThroughWalls = v end})
+    section:AddDropdown({Name = "Targets", Flag = "VisualTargets",
+        Values = {"Self", "NPCs", "Other players", "All"}, Default = getgenv().VisualTargets,
+        Callback = function(v) getgenv().VisualTargets = v end})
+end
 local v18 = t1.mVisuals:AddSection({
 	Position = "center",
 	Name = "PLAYER"
@@ -588,7 +745,7 @@ do
             "PenetrationEnabled", "PenetrationMax",
             "RageMagEnabled", "WallbangEnabled", "WallbangAutoFire", "WallbangFOV",
             "FeatureMode", "PulseAim", "PulseMin", "PulseMax", "PulseSmooth", "PulseSpeed",
-            "StretchEnabled", "StretchAspect", "TrailSource", "TrailOffsetX", "TrailOffsetY", "TrailOffsetZ", "TrailLength", "TrailOpacity", "TrailGlow", "TrailFaceCamera", "TrailEndTint", "RingScale", "MotionTrail", "TrailDetail", "TrailShape", "TrailTint", "TrailWidth", "TrailTip", "TrailTime", "SnowStyle",
+            "VisualTargets", "VisualThroughWalls", "StretchEnabled", "StretchAspect", "TrailSource", "TrailOffsetX", "TrailOffsetY", "TrailOffsetZ", "TrailLength", "TrailOpacity", "TrailGlow", "TrailFaceCamera", "TrailEndTint", "RingScale", "MotionTrail", "TrailDetail", "TrailShape", "TrailTint", "TrailWidth", "TrailTip", "TrailTime", "SnowStyle",
             "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll", "UndoDuration",
             "BulletTrailsEnabled", "BulletTrailModel", "BulletTrailLife",
             "Theme", "ThemeHue", "ThemeSat",
@@ -2259,6 +2416,7 @@ t1.value53:BindToRenderStep("LesxovWeather", Enum.RenderPriority.Last.Value + 3,
             local gui = part.Flake
             local line = getgenv().SnowStyle == "Line"
             gui.Size = UDim2.fromScale(cfg.Size, cfg.Size * (line and 6 or 1))
+            gui.AlwaysOnTop = getgenv().VisualThroughWalls
             gui.ImageLabel.ImageColor3 = cfg.Color
             gui.ImageLabel.ImageTransparency = cfg.Transparency
         end
@@ -2749,7 +2907,7 @@ do
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local head = char and char:FindFirstChild("Head")
-        if not (hum and hrp and head) or hum.Health <= 0 then return hide(o) end
+        if not (hum and hrp and head) or hum.Health <= 0 or not t1.visualVisible(char) then return hide(o) end
         if env.EspTeamCheck and player.Team ~= nil and lp.Team ~= nil and player.Team == lp.Team then return hide(o) end
 
         local c3, onScreen = cam:WorldToViewportPoint(hrp.Position)
@@ -2916,12 +3074,20 @@ do
         local cam = workspace.CurrentCamera
         if not cam then return end
         local vp = cam.ViewportSize
-        for _, pl in ipairs(Players:GetPlayers()) do
-            if pl ~= lp then
-                local o = objs[pl]
-                if not o then o = make(); objs[pl] = o end
-                local ok = pcall(render, cam, vp, pl, o)
-                if not ok then hide(o) end
+        local live = {}
+        for _, char in ipairs(t1.visualActors()) do
+            live[char] = true
+            local pl = Players:GetPlayerFromCharacter(char)
+            local actor = {Character = char, DisplayName = pl and pl.DisplayName or char.Name, Team = pl and pl.Team}
+            local o = objs[char]
+            if not o then o = make(); objs[char] = o end
+            local ok = pcall(render, cam, vp, actor, o)
+            if not ok then hide(o) end
+        end
+        for char, o in pairs(objs) do
+            if not live[char] then
+                eachDrawing(o, function(d) d:Remove() end)
+                objs[char] = nil
             end
         end
     end)
@@ -3098,16 +3264,22 @@ function t1.value85(p61)
     t1.value82[p61] = nil
 end
 function t1.value86()
-    for _, player in pairs(t1.value76:GetPlayers()) do
-        if player ~= t1.value77 and (player.Character and player.Character:FindFirstChild("HumanoidRootPart")) then
-            local v365 = t1.value83(player.Character.HumanoidRootPart)
-            local ChamsHighlight = player.Character:FindFirstChild("ChamsHighlight")
-
-            if ChamsHighlight then
-                ChamsHighlight.Enabled = not v365
+    local live = {}
+    if t1.value79 then
+        for _, char in ipairs(t1.visualActors()) do
+            live[char] = true
+            if not t1.value82[char] then t1.value84(char) end
+            local highlight = char:FindFirstChild("ChamsHighlight")
+            if highlight then
+                highlight.DepthMode = getgenv().VisualThroughWalls and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
+                highlight.FillColor = t1.value81
+                highlight.Enabled = getgenv().VisualThroughWalls
             end
         end
     end
+    local stale = {}
+    for char in pairs(t1.value82) do if not live[char] then stale[#stale + 1] = char end end
+    for _, char in ipairs(stale) do t1.value85(char) end
 end
 local function v75(p62)
     p62.CharacterAdded:Connect(function(character)
@@ -3135,9 +3307,7 @@ t1.value76.PlayerRemoving:Connect(function(player)
     end
 end)
 RunService4.RenderStepped:Connect(function()
-    if t1.value79 then
-        t1.value86()
-    end
+    t1.value86()
 end)
 
 local v78 = v18:AddToggle({
@@ -4473,6 +4643,7 @@ local function trailPart(size, cf, color, life, base, ball)
     part.Transparency = base or 0
     part.Massless = true
     part.Parent = getTrailFolder()
+    t1.trackVisual(part)
     life = life * (getgenv().BulletTrailLife or 15) / 15
     TrailsList[#TrailsList + 1] = { Part = part, Life = life, Max = life, Base = base or 0 }
     while #TrailsList > 700 do
@@ -4797,19 +4968,27 @@ do
         p.Transparency = transp or 0
         if ball then p.Shape = Enum.PartType.Ball end
         p.Parent = fx()
+        t1.trackVisual(p)
         return p
     end
 
     local function run(dur, step, done)
+        local effectOwner = t1.visualOwner
         local t = 0
         local conn
         conn = RunService.RenderStepped:Connect(function(dt)
             t = t + dt
             local a = math.min(t / dur, 1)
+            t1.visualOwner = effectOwner
             local ok = pcall(step, t, a, dt)
+            t1.visualOwner = nil
             if a >= 1 or not ok then
                 conn:Disconnect()
-                if done then pcall(done) end
+                if done then
+                    t1.visualOwner = effectOwner
+                    pcall(done)
+                    t1.visualOwner = nil
+                end
             end
         end)
     end
@@ -4928,6 +5107,7 @@ do
         -- без суставов: иначе CFrame одной детали двигает всю сборку
         for _, d in ipairs(kill) do pcall(function() d:Destroy() end) end
         clone.Parent = fx()
+        for _, part in ipairs(g.parts) do t1.trackVisual(part, char) end
         return g
     end
 
@@ -5381,10 +5561,12 @@ do
     end
 
     local function trigger(char, name, color, previewCF)
+        if not t1.visualAllowed(char) then return end
+        t1.visualOwner = char
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if type(name) == "table" then name = name[1] end
         local fn = E[name]
-        if not hrp or not fn then return end
+        if not hrp or not fn then t1.visualOwner = nil; return end
         local g = ghost(char)
         local cf = previewCF or hrp.CFrame
         if g then
@@ -5392,35 +5574,30 @@ do
         end
         local ok = pcall(fn, { g = g, pos = cf.Position, cf = cf, color = color })
         if not ok then finish(g) end
+        t1.visualOwner = nil
     end
 
-    local function watch(pl)
-        if pl == lp then return end
-        local function onChar(char)
-            local hum = char:WaitForChild("Humanoid", 10)
-            if not hum then return end
-            hum.Died:Connect(function()
-                if not env.KillFxEnabled then return end
-                local tag = hum:FindFirstChild("creator")
-                local mine
-                if tag and tag:IsA("ObjectValue") and tag.Value ~= nil then
-                    mine = tag.Value == lp -- игра ставит creator: точно знаем убийцу
-                else
+    local watchedDeaths = setmetatable({}, {__mode = "k"})
+    RunService.Heartbeat:Connect(function()
+        for _, char in ipairs(t1.visualActors()) do
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and not watchedDeaths[hum] then
+                watchedDeaths[hum] = true
+                hum.Died:Connect(function()
+                    if not env.KillFxEnabled or not t1.visualAllowed(char) then return end
+                    local tag = hum:FindFirstChild("creator")
                     local shot = t1.shotAt[char]
-                    mine = shot ~= nil and os.clock() - shot < 1.5
-                end
-                if mine then
-                    local name = env.KillFxName
-                    if name == "Random" then name = ORDER[math.random(#ORDER)] end
-                    trigger(char, name, kcol)
-                end
-            end)
+                    local mine = tag and tag:IsA("ObjectValue") and tag.Value == lp
+                        or (shot ~= nil and os.clock() - shot < 1.5)
+                    if mine then
+                        local name = env.KillFxName
+                        if name == "Random" then name = ORDER[math.random(#ORDER)] end
+                        trigger(char, name, kcol)
+                    end
+                end)
+            end
         end
-        pl.CharacterAdded:Connect(onChar)
-        if pl.Character then task.spawn(onChar, pl.Character) end
-    end
-    for _, pl in ipairs(Players:GetPlayers()) do watch(pl) end
-    Players.PlayerAdded:Connect(watch)
+    end)
 
     local function preview()
         local char = lp.Character
@@ -5442,6 +5619,7 @@ do
     end
     -- ---------------- China hat ----------------
     local hatCol = fromHex(env.HatColorHex, Color3.fromRGB(255, 77, 109))
+    local hats = {}
     local hat = { discs = {}, balls = {}, key = nil, rot = 0 }
 
     local function clearHat()
@@ -5486,13 +5664,14 @@ do
     end
 
     RunService.RenderStepped:Connect(function(dt)
-        if not env.HatEnabled then
-            if hat.key then clearHat() end
-            return
-        end
-        local char = lp.Character
-        local head = char and char:FindFirstChild("Head")
-        if not head then return end
+        local live = {}
+        for _, char in ipairs(env.HatEnabled and t1.visualActors() or {}) do
+        local head = char:FindFirstChild("Head")
+        if head then
+        live[char] = true
+        hat = hats[char]
+        if not hat then hat = {discs = {}, balls = {}, key = nil, rot = 0}; hats[char] = hat end
+        t1.visualOwner = char
         if hat.key ~= tostring(env.FeatureMode) .. "|" .. tostring(env.HatDetail) .. "|" .. tostring(env.HatSize) then buildHat() end
         if env.HatRotate then hat.rot = hat.rot + dt * 1.5 end
         local base = head.Position + Vector3.new(0, head.Size.Y / 2 + 0.1 + (env.HatHeight or 0) / 10, 0)
@@ -5513,14 +5692,21 @@ do
                 b.p.Color = env.HatRainbow and Color3.fromHSV((b.ang / (2 * PI) + os.clock() * 0.4) % 1, 1, 1) or hatCol
             end
         end
+        t1.visualOwner = nil
+        end
+        end
+        for char, state in pairs(hats) do
+            if not live[char] then hat = state; clearHat(); hats[char] = nil end
+        end
     end)
 
     -- ---------------- фигуры при прыжке / приземлении ----------------
     local jcol = fromHex(env.JumpColorHex, Color3.fromRGB(255, 77, 109))
     local shapes = {}
 
-    local function spawnShape(center)
+    local function spawnShape(center, char)
         local sides = ({ Circle = 28, Square = 4, Triangle = 3 })[env.JumpShape or "Circle"] or 28
+        t1.visualOwner = char
         local segs = {}
         local circle = (env.JumpShape or "Circle") == "Circle"
         if circle then
@@ -5533,9 +5719,10 @@ do
             table.remove(shapes, 1)
         end
         shapes[#shapes + 1] = {
-            circle = circle, segs = segs, sides = sides, c = center, t = 0, spin = math.random() * PI,
+            char = char, circle = circle, segs = segs, sides = sides, c = center, t = 0, spin = math.random() * PI,
             dur = math.max((env.JumpDur or 8) / 10, 0.2), max = env.JumpSize or 6,
         }
+        t1.visualOwner = nil
     end
 
     RunService.RenderStepped:Connect(function(dt)
@@ -5586,18 +5773,22 @@ do
         local hum = char:WaitForChild("Humanoid", 10)
         if not hum then return end
         hum.StateChanged:Connect(function(_, new)
-            if not env.JumpFxEnabled then return end
+            if not env.JumpFxEnabled or not t1.visualAllowed(char) then return end
             if new == Enum.HumanoidStateType.Jumping and env.JumpOnJump then
                 local f = feet(char)
-                if f then spawnShape(f) end
+                if f then spawnShape(f, char) end
             elseif new == Enum.HumanoidStateType.Landed and env.JumpOnLand then
                 local f = feet(char)
-                if f then spawnShape(f) end
+                if f then spawnShape(f, char) end
             end
         end)
     end
-    if lp.Character then task.spawn(watchSelf, lp.Character) end
-    lp.CharacterAdded:Connect(watchSelf)
+    local watchedJump = setmetatable({}, {__mode = "k"})
+    RunService.Heartbeat:Connect(function()
+        for _, char in ipairs(t1.visualActors()) do
+            if not watchedJump[char] then watchedJump[char] = true; task.spawn(watchSelf, char) end
+        end
+    end)
 
     -- ---------------- UI ----------------
     local t0 = os.clock()
@@ -5660,6 +5851,7 @@ do
             Callback = function(v) env.TrailFaceCamera = v end})
 
         local active, owner, signature = {}, nil, nil
+        local trailStates = {}
         local function strip(root, center, axis, width, tint, detailed)
             local a, b = Instance.new("Attachment"), Instance.new("Attachment")
             a.Position, b.Position = center - axis * width / 2, center + axis * width / 2
@@ -5675,12 +5867,18 @@ do
             trail.Transparency = NumberSequence.new(1 - env.TrailOpacity / 100, 1)
             trail.LightEmission = env.TrailGlow / 100
             trail.Parent = root
+            t1.trackTrail(trail, root.Parent)
             table.insert(active, trail)
             table.insert(active, a)
             table.insert(active, b)
         end
         RunService.Heartbeat:Connect(function()
-            local char = lp.Character
+            local live = {}
+            for _, char in ipairs(env.MotionTrail and t1.visualActors() or {}) do
+            live[char] = true
+            local state = trailStates[char]
+            if not state then state = {active = {}}; trailStates[char] = state end
+            active, owner, signature = state.active, state.owner, state.signature
             local sourceNames = {
                 Body = {"HumanoidRootPart"}, Head = {"Head"},
                 ["Left hand"] = {"LeftHand", "Left Arm"}, ["Right hand"] = {"RightHand", "Right Arm"},
@@ -5693,13 +5891,14 @@ do
                     if root then break end
                 end
             end
-            if not root and not owner then return end
+            if root or owner then
             local key = root and table.concat({env.TrailDetail, env.TrailShape, env.TrailTint, env.TrailWidth, env.TrailTip, env.TrailTime, env.TrailSource, env.TrailOffsetX, env.TrailOffsetY, env.TrailOffsetZ, env.TrailLength, env.TrailOpacity, env.TrailGlow, tostring(env.TrailFaceCamera), env.TrailEndTint}, "|")
-            if root == owner and key == signature then return end
+            if root ~= owner or key ~= signature then
             for _, obj in ipairs(active) do obj:Destroy() end
             table.clear(active)
             owner, signature = root, key
-            if not root then return end
+            state.owner, state.signature = root, key
+            if root then
             local width = env.TrailWidth / 10
             local color = fromHex(env.TrailTint, Color3.new(1,1,1))
             local detail = env.TrailDetail == "Detailed"
@@ -5713,6 +5912,16 @@ do
                 if env.TrailShape == "Cross" then strip(root, origin, Vector3.yAxis, width, color, detail) end
             end
             if detail then strip(root, origin + Vector3.yAxis * 0.08, Vector3.xAxis, width * 0.12, color:Lerp(Color3.new(1,1,1),0.7), true) end
+            end
+            end
+            end
+            end
+            for char, state in pairs(trailStates) do
+                if not live[char] then
+                    for _, obj in ipairs(state.active) do obj:Destroy() end
+                    trailStates[char] = nil
+                end
+            end
         end)
     end
 
