@@ -491,6 +491,64 @@ local v17 = t1.mVisuals:AddSection({
 	Position = "left",
 	Name = "VIEW"
 })
+do
+    local env = getgenv()
+    env.StretchAspect = env.StretchAspect or "Native"
+    local ratios = {["4:3"] = 4/3, ["5:4"] = 5/4, ["16:9"] = 16/9,
+        ["16:10"] = 16/10, ["3:2"] = 3/2, ["21:9"] = 21/9}
+    local saved = setmetatable({}, {__mode = "k"})
+    local lastCamera, applied, clean
+    local function restore()
+        if lastCamera and saved[lastCamera] then
+            local original = saved[lastCamera]
+            pcall(function()
+                lastCamera.ViewStretch = original.stretch
+                lastCamera.FieldOfViewMode = original.mode
+            end)
+            saved[lastCamera] = nil
+        end
+        if lastCamera and applied and lastCamera.CFrame == applied then
+            lastCamera.CFrame = clean
+        end
+        applied, clean = nil, nil
+    end
+    v17:AddDropdown({Name = "Stretch", Flag = "StretchAspect",
+        Values = {"Native", "4:3", "5:4", "16:9", "16:10", "3:2", "21:9"},
+        Default = env.StretchAspect, Callback = function(value)
+            restore()
+            env.StretchAspect = value
+        end})
+    local service = game:GetService("RunService")
+    service:UnbindFromRenderStep("LesxovStretchReset")
+    service:UnbindFromRenderStep("LesxovStretch")
+    service:BindToRenderStep("LesxovStretchReset", Enum.RenderPriority.First.Value, function()
+        if applied and lastCamera and lastCamera.CFrame == applied then
+            lastCamera.CFrame = clean
+        end
+        applied, clean = nil, nil
+    end)
+    service:BindToRenderStep("LesxovStretch", Enum.RenderPriority.Last.Value + 2, function()
+        local camera = workspace.CurrentCamera
+        if camera ~= lastCamera then restore() lastCamera = camera end
+        local target = ratios[env.StretchAspect]
+        if not camera or not target then return end
+        local viewport = camera.ViewportSize
+        if viewport.X <= 0 or viewport.Y <= 0 then return end
+        local factor = math.clamp((viewport.X / viewport.Y) / target, 0.5, 2)
+        local ok = pcall(function()
+            if not saved[camera] then
+                saved[camera] = {stretch = camera.ViewStretch, mode = camera.FieldOfViewMode}
+            end
+            camera.FieldOfViewMode = Enum.FieldOfViewMode.Vertical
+            camera.ViewStretch = factor
+        end)
+        if not ok then
+            clean = camera.CFrame
+            applied = clean * CFrame.new(0, 0, 0, 1 / factor, 0, 0, 0, 1, 0, 0, 0, 1)
+            camera.CFrame = applied
+        end
+    end)
+end
 local v18 = t1.mVisuals:AddSection({
 	Position = "center",
 	Name = "PLAYER"
@@ -537,7 +595,7 @@ do
             "PenetrationEnabled", "PenetrationMax",
             "RageMagEnabled", "WallbangEnabled", "WallbangAutoFire", "WallbangFOV",
             "FeatureMode", "PulseAim", "PulseMin", "PulseMax", "PulseSmooth", "PulseSpeed",
-            "TrailSource", "TrailOffsetX", "TrailOffsetY", "TrailOffsetZ", "TrailLength", "TrailOpacity", "TrailGlow", "TrailFaceCamera", "TrailEndTint", "RingScale", "MotionTrail", "TrailDetail", "TrailShape", "TrailTint", "TrailWidth", "TrailTip", "TrailTime", "SnowStyle",
+            "StretchAspect", "TrailSource", "TrailOffsetX", "TrailOffsetY", "TrailOffsetZ", "TrailLength", "TrailOpacity", "TrailGlow", "TrailFaceCamera", "TrailEndTint", "RingScale", "MotionTrail", "TrailDetail", "TrailShape", "TrailTint", "TrailWidth", "TrailTip", "TrailTime", "SnowStyle",
             "SpinMode", "SpinSpeed", "SpinJitterAngle", "SpinDesyncRoll", "UndoDuration",
             "BulletTrailsEnabled", "BulletTrailModel", "BulletTrailLife",
             "Theme", "ThemeHue", "ThemeSat",
@@ -1982,7 +2040,7 @@ local color3_4 = Color3.fromRGB(255, 255, 255)
 t1.value58 = {
 	Density = 150,
 	Speed = 10,
-	Size = 0.2, Transparency = 0.2, Radius = 45, Wind = 3,
+	Size = 0.2, Transparency = 0.2, Radius = 45, Wind = 3, Angle = 0, Direction = 0,
 	Color = color3_4
 }
 t1.value59 = {
@@ -2004,6 +2062,7 @@ local v54 = v19:AddDropdown({
 	},
 	Callback = function(p43)
     t1.value59.Type = p43
+    t1.snowCenter = nil
     for v245, v246 in pairs(t1.value55) do
 
         v246:Destroy()
@@ -2098,6 +2157,8 @@ do
         {"Snow Transparency (%)", "Transparency", 0, 100, 100},
         {"Snow Radius", "Radius", 5, 100, 1},
         {"Snow Wind", "Wind", 0, 30, 1},
+        {"Snow Fall Angle", "Angle", 0, 90, 1},
+        {"Snow Direction", "Direction", -180, 180, 1},
     }) do
         local key, scale = spec[2], spec[5]
         Option4:AddSlider({Name = spec[1], Flag = "Snow" .. key,
@@ -2121,7 +2182,10 @@ Option4:AddDropdown({
     table.clear(t1.value56)
 end
 })
-t1.value53.RenderStepped:Connect(function(dt)
+t1.value53:UnbindFromRenderStep("LesxovWeather")
+t1.value53:BindToRenderStep("LesxovWeather", Enum.RenderPriority.Last.Value + 3, function(dt)
+    t1.value54 = workspace.CurrentCamera
+    if not t1.value54 then return end
     if t1.value59.Type == "Rain" then
         if #t1.value55 < t1.value57.Density then
             local Part = Instance.new("Part")
@@ -2155,6 +2219,15 @@ t1.value53.RenderStepped:Connect(function(dt)
         if not camera then return end
         local cfg = t1.value58
         local center, radius = camera.CFrame.Position, cfg.Radius
+        local movement = t1.snowCenter and center - t1.snowCenter or Vector3.zero
+        t1.snowCenter = center
+        -- Translate existing flakes before creating new ones; never interpolate.
+        for _, part in ipairs(t1.value56) do
+            part.Position = part.Position + movement
+        end
+        local angle, heading = math.rad(cfg.Angle), math.rad(cfg.Direction)
+        local fall = Vector3.new(math.sin(angle) * math.cos(heading), -math.cos(angle),
+            math.sin(angle) * math.sin(heading)) * cfg.Speed
         while #t1.value56 > cfg.Density do
             table.remove(t1.value56):Destroy()
         end
@@ -2181,13 +2254,14 @@ t1.value53.RenderStepped:Connect(function(dt)
         end
         for _, part in ipairs(t1.value56) do
             local seed = part:GetAttribute("SnowSeed") or 0
-            local drift = Vector3.new(math.sin(os.clock() * 1.5 + seed) * cfg.Wind,
-                -cfg.Speed, math.cos(os.clock() + seed) * cfg.Wind * 0.6)
+            local drift = fall + Vector3.new(math.sin(os.clock() * 1.5 + seed) * cfg.Wind,
+                0, math.cos(os.clock() + seed) * cfg.Wind * 0.6)
             part.Position = part.Position + drift * dt
             local delta = part.Position - center
-            if delta.Y < -radius or math.abs(delta.X) > radius or math.abs(delta.Z) > radius then
-                part.Position = position(false)
-            end
+            part.Position = center + Vector3.new(
+                (delta.X + radius) % (radius * 2) - radius,
+                (delta.Y + radius) % (radius * 2) - radius,
+                (delta.Z + radius) % (radius * 2) - radius)
             part.Parent = camera
             local gui = part.Flake
             local line = getgenv().SnowStyle == "Line"
